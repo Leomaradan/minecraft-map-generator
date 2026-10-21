@@ -1,0 +1,275 @@
+package com.leomaradan.mapgen.core;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Contents of {@code map.json}, the world configuration of a map pack. Every field is optional;
+ * see {@code docs/FORMAT.md} for the reference.
+ */
+public record MapConfig(
+        int format,
+        Files files,
+        Integer originX,
+        Integer originZ,
+        double horizontalScale,
+        HeightSpec height,
+        Dimension dimension,
+        int seaLevel,
+        Outside outside,
+        Spawn spawn,
+        Blocks blocks,
+        Decoration decoration,
+        VanillaStructures vanillaStructures
+) {
+    public static final int CURRENT_FORMAT = 1;
+
+    /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
+    public record Files(String heightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
+                        String water, boolean explicitWater, String lava, boolean explicitLava,
+                        String structures, boolean explicitStructures, String datapack) {
+    }
+
+    /**
+     * How raster values map to Y levels: either {@code y = baseY + value * scale}, or a linear
+     * mapping of the full value range onto [minY, maxY]. All null means "default for the bit depth".
+     */
+    public record HeightSpec(Double baseY, Double scale, Double minY, Double maxY) {
+        public boolean isRange() {
+            return this.minY != null;
+        }
+    }
+
+    /** Explicit world height. Null fields are derived from the height mapping. */
+    public record Dimension(Integer minY, Integer height) {
+    }
+
+    public enum OutsideMode {
+        /** Flat ground at {@code ground_level}, water up to {@code water_level}. */
+        FLAT,
+        /** Nothing is generated outside the map. */
+        VOID,
+        /** The border pixels are extended to infinity. */
+        EXTEND
+    }
+
+    public record Outside(OutsideMode mode, int groundLevel, int waterLevel, String biome) {
+    }
+
+    public record Spawn(int x, int z, Integer y) {
+    }
+
+    public record Blocks(String defaultBlock, boolean bedrock) {
+    }
+
+    public record Decoration(boolean features, boolean carvers) {
+    }
+
+    /**
+     * Filter for vanilla (and modded) structures placed randomly. Ids may name a structure set
+     * (e.g. {@code minecraft:villages}) or a single structure (e.g. {@code minecraft:village_plains}).
+     *
+     * @param only when non-null, only these are allowed
+     */
+    public record VanillaStructures(boolean enabled, List<String> disabled, List<String> only) {
+        public static final VanillaStructures ALL = new VanillaStructures(true, List.of(), null);
+
+        public boolean allows(String structureSetId, String structureId) {
+            if (!this.enabled) {
+                return false;
+            }
+            if (this.disabled.contains(structureSetId) || this.disabled.contains(structureId)) {
+                return false;
+            }
+            return this.only == null || this.only.contains(structureSetId) || this.only.contains(structureId);
+        }
+    }
+
+    public static MapConfig parse(JsonObject root, ValidationReport report) {
+        String p = "map.json";
+        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
+                "outside", "spawn", "blocks", "decoration", "vanilla_structures", "name", "description", "author");
+
+        int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
+        if (format > CURRENT_FORMAT) {
+            report.error("map.json format " + format + " is newer than supported (" + CURRENT_FORMAT + "); update the mod");
+        }
+
+        Files files = parseFiles(Json.object(root, "files", p, report), report);
+
+        Integer originX = null;
+        Integer originZ = null;
+        JsonArray origin = Json.array(root, "origin", p, report);
+        if (origin != null) {
+            if (origin.size() == 2 && Json.asInt(origin.get(0)) != null && Json.asInt(origin.get(1)) != null) {
+                originX = Json.asInt(origin.get(0));
+                originZ = Json.asInt(origin.get(1));
+            } else {
+                report.error("map.json.origin must be [x, z] (two integers)");
+            }
+        }
+
+        double scale = Json.number(root, "horizontal_scale", 1.0, p, report);
+        if (scale <= 0 || scale > 1024) {
+            report.error("map.json.horizontal_scale must be in ]0, 1024]");
+            scale = 1.0;
+        }
+
+        HeightSpec height = parseHeight(Json.object(root, "height", p, report), report);
+        Dimension dimension = parseDimension(Json.object(root, "dimension", p, report), report);
+        int seaLevel = Json.integer(root, "sea_level", 63, p, report);
+        Outside outside = parseOutside(Json.object(root, "outside", p, report), report);
+        Spawn spawn = parseSpawn(Json.object(root, "spawn", p, report), report);
+
+        JsonObject blocksJson = Json.object(root, "blocks", p, report);
+        Blocks blocks = new Blocks("minecraft:stone", true);
+        if (blocksJson != null) {
+            String bp = p + ".blocks";
+            Json.checkKnownKeys(blocksJson, bp, report, "default", "bedrock");
+            blocks = new Blocks(Json.id(blocksJson, "default", "minecraft:stone", bp, report), Json.bool(blocksJson, "bedrock", true, bp, report));
+        }
+
+        JsonObject decorationJson = Json.object(root, "decoration", p, report);
+        Decoration decoration = new Decoration(true, true);
+        if (decorationJson != null) {
+            String dp = p + ".decoration";
+            Json.checkKnownKeys(decorationJson, dp, report, "features", "carvers");
+            decoration = new Decoration(Json.bool(decorationJson, "features", true, dp, report), Json.bool(decorationJson, "carvers", true, dp, report));
+        }
+
+        VanillaStructures vanilla = VanillaStructures.ALL;
+        boolean vanillaShorthand = root.has("vanilla_structures") && root.get("vanilla_structures").isJsonPrimitive();
+        JsonObject vanillaJson = vanillaShorthand ? null : Json.object(root, "vanilla_structures", p, report);
+        if (vanillaJson != null) {
+            String vp = p + ".vanilla_structures";
+            Json.checkKnownKeys(vanillaJson, vp, report, "enabled", "disabled", "only");
+            List<String> disabled = Json.idList(vanillaJson, "disabled", vp, report);
+            vanilla = new VanillaStructures(Json.bool(vanillaJson, "enabled", true, vp, report), disabled == null ? List.of() : disabled,
+                    Json.idList(vanillaJson, "only", vp, report));
+        } else if (vanillaShorthand) {
+            // Shorthand: "vanilla_structures": false
+            vanilla = new VanillaStructures(Json.bool(root, "vanilla_structures", true, p, report), List.of(), null);
+        }
+
+        return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, outside, spawn, blocks, decoration, vanilla);
+    }
+
+    private static Files parseFiles(JsonObject json, ValidationReport report) {
+        if (json == null) {
+            json = new JsonObject();
+        }
+        String p = "map.json.files";
+        Json.checkKnownKeys(json, p, report, "heightmap", "biomes", "biome_mapping", "water", "lava", "structures", "datapack");
+        return new Files(
+                Json.string(json, "heightmap", "heightmap.png", p, report),
+                Json.string(json, "biomes", "biomes.png", p, report), Json.has(json, "biomes"),
+                Json.string(json, "biome_mapping", "biomes.json", p, report), Json.has(json, "biome_mapping"),
+                Json.string(json, "water", "water.png", p, report), Json.has(json, "water"),
+                Json.string(json, "lava", "lava.png", p, report), Json.has(json, "lava"),
+                Json.string(json, "structures", "structures.json", p, report), Json.has(json, "structures"),
+                normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
+    }
+
+    private static String normalizeFolder(String folder) {
+        String f = folder.replace('\\', '/');
+        while (f.startsWith("/")) {
+            f = f.substring(1);
+        }
+        return f.isEmpty() || f.endsWith("/") ? f : f + "/";
+    }
+
+    private static HeightSpec parseHeight(JsonObject json, ValidationReport report) {
+        if (json == null) {
+            return new HeightSpec(null, null, null, null);
+        }
+        String p = "map.json.height";
+        Json.checkKnownKeys(json, p, report, "base_y", "scale", "min_y", "max_y");
+        Double baseY = Json.number(json, "base_y", null, p, report);
+        Double scale = Json.number(json, "scale", null, p, report);
+        Double minY = Json.number(json, "min_y", null, p, report);
+        Double maxY = Json.number(json, "max_y", null, p, report);
+        boolean linear = baseY != null || scale != null;
+        boolean range = minY != null || maxY != null;
+        if (linear && range) {
+            report.error(p + ": use either {base_y, scale} or {min_y, max_y}, not both");
+            return new HeightSpec(null, null, null, null);
+        }
+        if (range) {
+            if (minY == null || maxY == null) {
+                report.error(p + ": min_y and max_y must both be set");
+                return new HeightSpec(null, null, null, null);
+            }
+            if (maxY <= minY) {
+                report.error(p + ": max_y must be greater than min_y");
+                return new HeightSpec(null, null, null, null);
+            }
+            return new HeightSpec(null, null, minY, maxY);
+        }
+        if (scale != null && scale <= 0) {
+            report.error(p + ".scale must be positive");
+            scale = null;
+        }
+        if (baseY == null && scale == null) {
+            return new HeightSpec(null, null, null, null);
+        }
+        return new HeightSpec(baseY == null ? 0.0 : baseY, scale == null ? 1.0 : scale, null, null);
+    }
+
+    private static Dimension parseDimension(JsonObject json, ValidationReport report) {
+        if (json == null) {
+            return new Dimension(null, null);
+        }
+        String p = "map.json.dimension";
+        Json.checkKnownKeys(json, p, report, "min_y", "height", "max_y");
+        Integer minY = Json.integer(json, "min_y", null, p, report);
+        Integer height = Json.integer(json, "height", null, p, report);
+        Integer maxY = Json.integer(json, "max_y", null, p, report);
+        if (maxY != null) {
+            if (height != null) {
+                report.error(p + ": use either height or max_y, not both");
+            } else {
+                int base = minY != null ? minY : DimensionLayout.VANILLA_MIN_Y;
+                height = maxY - base;
+            }
+        }
+        return new Dimension(minY, height);
+    }
+
+    private static Outside parseOutside(JsonObject json, ValidationReport report) {
+        if (json == null) {
+            return new Outside(OutsideMode.FLAT, 64, 63, "minecraft:plains");
+        }
+        String p = "map.json.outside";
+        Json.checkKnownKeys(json, p, report, "mode", "ground_level", "water_level", "biome");
+        String modeName = Json.string(json, "mode", "flat", p, report);
+        OutsideMode mode;
+        try {
+            mode = OutsideMode.valueOf(modeName.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            report.error(p + ".mode must be one of flat, void, extend (got \"" + modeName + "\")");
+            mode = OutsideMode.FLAT;
+        }
+        return new Outside(mode,
+                Json.integer(json, "ground_level", 64, p, report),
+                Json.integer(json, "water_level", 63, p, report),
+                Json.id(json, "biome", "minecraft:plains", p, report));
+    }
+
+    private static Spawn parseSpawn(JsonObject json, ValidationReport report) {
+        if (json == null) {
+            return null;
+        }
+        String p = "map.json.spawn";
+        Json.checkKnownKeys(json, p, report, "x", "y", "z");
+        Integer x = Json.integer(json, "x", null, p, report);
+        Integer z = Json.integer(json, "z", null, p, report);
+        if (x == null || z == null) {
+            report.error(p + ": x and z are required");
+            return null;
+        }
+        return new Spawn(x, z, Json.integer(json, "y", null, p, report));
+    }
+}

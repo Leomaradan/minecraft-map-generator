@@ -1,0 +1,22 @@
+{
+  "generator.mapgen.map": "Carte depuis un ZIP",
+  "mapgen.screen.title": "Carte depuis un ZIP",
+  "mapgen.screen.path": "Fichier ZIP de la carte",
+  "mapgen.screen.path.hint": "Chemin du fichier .zip de la carte",
+  "mapgen.screen.browse": "Parcourir...",
+  "mapgen.screen.browse.tooltip": "Choisir le fichier ZIP. Vous pouvez aussi le déposer sur cet écran.",
+  "mapgen.screen.folder_maps": "Dossier des cartes",
+  "mapgen.screen.folder_empty": "Aucun ZIP dans le dossier des cartes",
+  "mapgen.screen.open_folder": "Ouvrir le dossier",
+  "mapgen.screen.help": "Choisissez le ZIP d'une carte : tapez son chemin, utilisez Parcourir, déposez le fichier ici ou placez-le dans %s.",
+  "mapgen.screen.invalid_path": "Ce chemin n'est pas valide.",
+  "mapgen.screen.not_found": "Fichier introuvable.",
+  "mapgen.screen.validating": "Vérification de la carte...",
+  "mapgen.screen.valid": "La carte \"%s\" est prête.",
+  "mapgen.screen.invalid": "Cette carte ne peut pas être utilisée :",
+  "mapgen.screen.more": "... et %s de plus",
+  "mapgen.screen.no_dialog": "La boîte de dialogue de fichiers n'est pas disponible. Tapez le chemin, déposez le fichier sur cet écran ou placez-le dans %s.",
+  "mapgen.error.title": "Carte depuis un ZIP",
+  "mapgen.error.datapack": "Impossible d'installer les datapacks de la carte : %s",
+  "mapgen.error.no_map": "Choisissez le ZIP d'une carte avant de créer le monde."
+}
