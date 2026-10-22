@@ -1,8 +1,18 @@
-name: Build
+name: Minecraft mod
 
 on:
   push:
+    paths:
+      - 'mod/**'
+      - '.github/workflows/mod.yml'
   pull_request:
+    paths:
+      - 'mod/**'
+      - '.github/workflows/mod.yml'
+
+defaults:
+  run:
+    working-directory: mod
 
 jobs:
   build:
@@ -16,11 +26,13 @@ jobs:
             21
             25
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: mod
       - name: Build and test
         run: ./gradlew build
       - uses: actions/upload-artifact@v4
         with:
           name: mapgen-jars
           path: |
-            fabric/build/libs/*.jar
-            neoforge/build/libs/*.jar
+            mod/fabric/build/libs/*.jar
+            mod/neoforge/build/libs/*.jar
