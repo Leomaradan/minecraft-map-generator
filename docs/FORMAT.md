@@ -16,8 +16,8 @@ structures/*.nbt    optional  structure templates referenced by structures.json
 datapack/           optional  a regular datapack (pack.mcmeta, data/...) installed in the world
 ```
 
-The included `example/make_example.py` builds two complete examples (`example/example.zip`,
-`example/example-tall.zip`).
+`mod/example/make_example.py` builds two complete examples (`mod/example/example.zip`,
+`mod/example/example-tall.zip`).
 
 ## Coordinates
 
