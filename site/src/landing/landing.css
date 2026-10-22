@@ -15,6 +15,15 @@ article { background:var(--card); padding:16px; border-radius:8px; }
 article h3 { margin:0 0 4px; }
 article p { margin:0; color:var(--muted); }
 .gallery { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
-.gallery img { width:100%; border-radius:8px; }
+.thumb { padding:0; border:0; background:none; cursor:zoom-in; border-radius:8px; overflow:hidden; }
+.thumb img { display:block; width:100%; transition:transform .15s; }
+.thumb:hover img, .thumb:focus-visible img { transform:scale(1.03); }
+.lightbox { position:fixed; inset:0; z-index:10; display:grid; place-items:center; background:rgba(0,0,0,.88); padding:24px; cursor:zoom-out; }
+.lightbox > img { max-width:100%; max-height:100%; border-radius:6px; cursor:default; }
+.lightbox button { position:absolute; background:rgba(255,255,255,.12); color:#fff; border:0; border-radius:50%; width:44px; height:44px; font-size:28px; line-height:1; cursor:pointer; }
+.lightbox button:hover { background:rgba(255,255,255,.25); }
+.lb-close { top:16px; right:16px; }
+.lb-nav { top:50%; transform:translateY(-50%); }
+.lb-nav.prev { left:16px; } .lb-nav.next { right:16px; }
 code { background:var(--card); padding:1px 5px; border-radius:4px; }
 footer { text-align:center; padding:32px; color:var(--muted); }

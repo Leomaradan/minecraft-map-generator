@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 const BASE = import.meta.env.BASE_URL;
 const REPO = 'https://github.com/Leomaradan/minecraft-map-generator';
 const RELEASE = `${REPO}/releases/latest`;
@@ -12,8 +14,23 @@ const FEATURES = [
 ];
 
 const SCREENSHOTS = [1, 2, 3, 4];
+const screenshot = (n: number) => `${BASE}screenshots/screen${n}.png`;
 
 export function Landing() {
+  const [open, setOpen] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (open === null) return;
+    const step = (d: number) => setOpen((i) => (i === null ? null : (i + d + SCREENSHOTS.length) % SCREENSHOTS.length));
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(null);
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowRight') step(1);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [open]);
+
   return (
     <>
       <header className="hero">
@@ -46,8 +63,10 @@ export function Landing() {
         <section>
           <h2>Screenshots</h2>
           <div className="gallery">
-            {SCREENSHOTS.map((n) => (
-              <img key={n} src={`${BASE}screenshots/placeholder-${n}.svg`} alt={`Screenshot ${n}`} loading="lazy" />
+            {SCREENSHOTS.map((n, i) => (
+              <button key={n} type="button" className="thumb" onClick={() => setOpen(i)} aria-label={`Enlarge screenshot ${n}`}>
+                <img src={screenshot(n)} alt={`Screenshot ${n}`} loading="lazy" />
+              </button>
             ))}
           </div>
         </section>
@@ -79,6 +98,15 @@ export function Landing() {
           </ul>
         </section>
       </main>
+
+      {open !== null && (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label="Screenshot" onClick={() => setOpen(null)}>
+          <img src={screenshot(SCREENSHOTS[open])} alt={`Screenshot ${SCREENSHOTS[open]}`} onClick={(e) => e.stopPropagation()} />
+          <button type="button" className="lb-close" aria-label="Close" onClick={() => setOpen(null)}>×</button>
+          <button type="button" className="lb-nav prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); setOpen((open + SCREENSHOTS.length - 1) % SCREENSHOTS.length); }}>‹</button>
+          <button type="button" className="lb-nav next" aria-label="Next" onClick={(e) => { e.stopPropagation(); setOpen((open + 1) % SCREENSHOTS.length); }}>›</button>
+        </div>
+      )}
 
       <footer>
         <a href={REPO}>GitHub</a> · <a href={`${BASE}editor/`}>Editor</a>
