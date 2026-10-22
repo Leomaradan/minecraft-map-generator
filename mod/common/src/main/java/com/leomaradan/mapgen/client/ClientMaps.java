@@ -1,7 +1,6 @@
 package com.leomaradan.mapgen.client;
 
 import com.leomaradan.mapgen.MapGen;
-import com.leomaradan.mapgen.core.BiomeMapping;
 import com.leomaradan.mapgen.core.MapPack;
 import com.leomaradan.mapgen.core.StructureEntry;
 import com.leomaradan.mapgen.core.ValidationReport;
@@ -108,21 +107,12 @@ public final class ClientMaps {
         var structures = context.worldgenLoadContext().lookupOrThrow(Registries.STRUCTURE);
         for (StructureEntry entry : pack.structures()) {
             if (entry instanceof StructureEntry.Structure structure) {
-                Identifier key = Identifier.parse(structure.id());
-                if (structures.get(ResourceKey.create(Registries.STRUCTURE, key)).isEmpty() && !definedByDatapack(pack, "worldgen/structure", key)) {
-                    report.error("structure " + structure.id() + " does not exist");
-                }
+                MapWorlds.reportMissingStructure(structure, id -> structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(id))).isPresent()
+                        || definedByDatapack(pack, "worldgen/structure", Identifier.parse(id)), report);
             }
         }
-        List<String> blocks = new ArrayList<>();
-        blocks.add(pack.config().blocks().defaultBlock());
-        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
-            blocks.add(slot.top());
-            blocks.add(slot.filler());
-            blocks.add(slot.underwater());
-        }
-        for (String block : blocks) {
-            if (block != null && BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
+        for (String block : pack.blockIds()) {
+            if (BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
                 report.error("block " + block + " does not exist");
             }
         }

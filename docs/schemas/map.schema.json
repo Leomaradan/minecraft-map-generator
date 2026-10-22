@@ -33,6 +33,152 @@
           }
         }
       ]
+    },
+    "block_choice": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/resource_id"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "block"
+          ],
+          "properties": {
+            "block": {
+              "$ref": "#/$defs/resource_id"
+            },
+            "weight": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1,
+              "description": "Relative probability. A plain block id has a weight of 1."
+            }
+          }
+        }
+      ]
+    },
+    "blocks": {
+      "description": "A block id, a list of blocks picked at random (with optional weights), or {\"blocks\": [...], \"method\": ...}.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/resource_id"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/block_choice"
+          },
+          "description": "Blocks picked at random for each position."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "blocks"
+          ],
+          "properties": {
+            "blocks": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/block_choice"
+              }
+            },
+            "method": {
+              "enum": [
+                "random",
+                "perlin"
+              ],
+              "default": "random",
+              "description": "random: each block picked independently. perlin: smooth noise, the blocks form patches about scale blocks wide."
+            },
+            "scale": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 16,
+              "description": "Size of the perlin patches, in blocks."
+            }
+          }
+        }
+      ]
+    },
+    "features": {
+      "description": "Biome features (trees, grass, ores, lakes...): true, false, or a filter.",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "disabled": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/resource_id"
+              },
+              "description": "Placed features to skip, e.g. minecraft:lake_lava_surface."
+            },
+            "disabled_steps": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "raw_generation",
+                  "lakes",
+                  "local_modifications",
+                  "underground_structures",
+                  "surface_structures",
+                  "strongholds",
+                  "underground_ores",
+                  "underground_decoration",
+                  "fluid_springs",
+                  "vegetal_decoration",
+                  "top_layer_modification"
+                ]
+              },
+              "description": "Generation steps to skip entirely, e.g. lakes."
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/resource_id"
+              },
+              "description": "If set, only these placed features are generated."
+            }
+          }
+        }
+      ]
+    },
+    "carvers": {
+      "description": "Caves and ravines from the biomes: true, false, or {\"cave\": ..., \"canyon\": ...}.",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cave": {
+              "type": "boolean",
+              "default": true,
+              "description": "Caves (and nether caves)."
+            },
+            "canyon": {
+              "type": "boolean",
+              "default": true,
+              "description": "Ravines."
+            }
+          }
+        }
+      ]
     }
   },
   "properties": {
@@ -238,9 +384,9 @@
       "additionalProperties": false,
       "properties": {
         "default": {
-          "$ref": "#/$defs/resource_id",
+          "$ref": "#/$defs/blocks",
           "default": "minecraft:stone",
-          "description": "Block under the surface layers."
+          "description": "Blocks under the surface layers."
         },
         "bedrock": {
           "type": "boolean",
@@ -253,61 +399,14 @@
       "additionalProperties": false,
       "properties": {
         "features": {
+          "$ref": "#/$defs/features",
           "default": true,
-          "description": "Biome features (trees, grass, ores, lakes...): true, false, or a filter.",
-          "oneOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": true
-                },
-                "disabled": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/resource_id"
-                  },
-                  "description": "Placed features to skip, e.g. minecraft:lake_lava_surface."
-                },
-                "disabled_steps": {
-                  "type": "array",
-                  "items": {
-                    "enum": [
-                      "raw_generation",
-                      "lakes",
-                      "local_modifications",
-                      "underground_structures",
-                      "surface_structures",
-                      "strongholds",
-                      "underground_ores",
-                      "underground_decoration",
-                      "fluid_springs",
-                      "vegetal_decoration",
-                      "top_layer_modification"
-                    ]
-                  },
-                  "description": "Generation steps to skip entirely, e.g. lakes."
-                },
-                "only": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/resource_id"
-                  },
-                  "description": "If set, only these placed features are generated."
-                }
-              }
-            }
-          ]
+          "description": "Biome features (trees, grass, ores, lakes...): true, false, or a filter. An entry of biomes.json can override it."
         },
         "carvers": {
-          "type": "boolean",
+          "$ref": "#/$defs/carvers",
           "default": true,
-          "description": "Caves and ravines from the biomes."
+          "description": "Caves and ravines from the biomes: true, false, or {\"cave\", \"canyon\"}. An entry of biomes.json can override it."
         }
       }
     },

@@ -33,20 +33,61 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
     /** Default height of {@code biome_mountain} above the sea level, in blocks. */
     public static final int DEFAULT_MOUNTAIN_ABOVE_SEA = 64;
 
-    private static final String[] SURFACE_KEYS = {"top", "filler", "underwater", "filler_depth", "snow"};
+    private static final String BIOME = "biome";
+    private static final String TOP = "top";
+    private static final String FILLER = "filler";
+    private static final String UNDERWATER = "underwater";
+    private static final String FILLER_DEPTH = "filler_depth";
+    private static final String SNOW = "snow";
+    private static final String FEATURES = "features";
+    private static final String CARVERS = "carvers";
+    private static final String BIOME_RIVER = "biome_river";
+    private static final String BIOME_BORDER = "biome_border";
+    private static final String BIOME_MOUNTAIN = "biome_mountain";
+    private static final String BIOME_UNDERGROUND = "biome_underground";
+    /** Keys of a variant besides {@code biome}: surface blocks and decoration. */
+    private static final String[] SURFACE_KEYS = {TOP, FILLER, UNDERWATER, FILLER_DEPTH, SNOW, FEATURES, CARVERS};
+    private static final String RIVER_WIDTH = "river_width";
+    private static final String BORDER_WIDTH = "border_width";
+    private static final String MOUNTAIN_Y = "mountain_y";
+    private static final String UNDERGROUND_DEPTH = "underground_depth";
+    private static final String[] SUBSTITUTE_KEYS = {BIOME_RIVER, BIOME_BORDER, BIOME_MOUNTAIN, BIOME_UNDERGROUND, RIVER_WIDTH, BORDER_WIDTH,
+            MOUNTAIN_Y, UNDERGROUND_DEPTH};
 
     /**
-     * A biome with its surface blocks.
+     * A biome with its surface blocks and decoration.
      *
-     * @param top         surface block, null for the default derived from the biome
-     * @param filler      block under the surface, null for the default derived from the biome
-     * @param underwater  surface block under water or lava, null for the default
+     * @param top         surface blocks, null for the default derived from the biome
+     * @param filler      blocks under the surface, null for the default derived from the biome
+     * @param underwater  surface blocks under water or lava, null for the default
      * @param fillerDepth thickness of top + filler layers, null for the default
      * @param snow        where snow and ice may form, null for {@code snow} of map.json
+     * @param features    biome features filter, null for {@code decoration.features} of map.json
+     * @param carvers     biome carvers, null for {@code decoration.carvers} of map.json
      * @param origin      where it comes from in biomes.json, for messages (e.g. "#3A7D22.biome_river")
      */
-    public record Variant(String biome, String top, String filler, String underwater, Integer fillerDepth, MapConfig.Snow snow,
-                          String origin) {
+    public record Variant(String biome, BlockPalette top, BlockPalette filler, BlockPalette underwater, Integer fillerDepth, MapConfig.Snow snow,
+                          MapConfig.Features features, MapConfig.Carvers carvers, String origin) {
+        static Variant of(String biome, String origin) {
+            return new Variant(biome, null, null, null, null, null, null, null, origin);
+        }
+
+        /** This substitute with the {@code snow}, {@code features} and {@code carvers} of its entry where it has none. */
+        Variant inheriting(Variant entry) {
+            return new Variant(this.biome, this.top, this.filler, this.underwater, this.fillerDepth, this.snow != null ? this.snow : entry.snow,
+                    this.features != null ? this.features : entry.features, this.carvers != null ? this.carvers : entry.carvers, this.origin);
+        }
+
+        /** Block ids named by the surface layers. */
+        public List<String> blockIds() {
+            List<String> ids = new ArrayList<>();
+            for (BlockPalette palette : new BlockPalette[]{this.top, this.filler, this.underwater}) {
+                if (palette != null) {
+                    ids.addAll(palette.ids());
+                }
+            }
+            return ids;
+        }
     }
 
     /**
@@ -57,8 +98,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
      * @param mountainY        Y from which the mountain biome is used, null for sea level + 64
      * @param undergroundDepth depth below the ground where the underground biome starts
      */
-    public record Entry(int color, String biome, String top, String filler, String underwater, Integer fillerDepth,
-                        int riverSlot, int borderSlot, int mountainSlot, int undergroundSlot,
+    public record Entry(int color, String biome, int riverSlot, int borderSlot, int mountainSlot, int undergroundSlot,
                         int riverWidth, int borderWidth, Integer mountainY, int undergroundDepth) {
         public boolean hasBorder() {
             return this.borderSlot >= 0;
@@ -73,6 +113,14 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
 
     public boolean hasBorders() {
         return this.entries.stream().anyMatch(Entry::hasBorder);
+    }
+
+    public boolean hasFeatureOverrides() {
+        return this.slots.stream().anyMatch(v -> v.features() != null);
+    }
+
+    public boolean hasCarverOverrides() {
+        return this.slots.stream().anyMatch(v -> v.carvers() != null);
     }
 
     public boolean hasRivers() {
@@ -162,8 +210,8 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
                 report.error(p + ": \"" + biome + "\" is not a valid biome id");
                 return null;
             }
-            slots.add(new Variant(Json.normalizeId(biome), null, null, null, null, null, origin));
-            return new Entry(color, Json.normalizeId(biome), null, null, null, null, -1, -1, -1, -1,
+            slots.add(Variant.of(Json.normalizeId(biome), origin));
+            return new Entry(color, Json.normalizeId(biome), -1, -1, -1, -1,
                     DEFAULT_RIVER_WIDTH, DEFAULT_BORDER_WIDTH, null, DEFAULT_UNDERGROUND_DEPTH);
         }
         if (!value.isJsonObject()) {
@@ -171,56 +219,60 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
             return null;
         }
         JsonObject o = value.getAsJsonObject();
-        Json.checkKnownKeys(o, p, report, "biome", "top", "filler", "underwater", "filler_depth", "snow", "biome_river", "biome_border", "biome_mountain",
-                "biome_underground", "river_width", "border_width", "mountain_y", "underground_depth");
+        Json.checkKnownKeys(o, p, report, concat(concat(BIOME, SURFACE_KEYS), SUBSTITUTE_KEYS));
         Variant base = parseVariant(o, p, origin, report);
         if (base == null) {
             return null;
         }
-        int river = substitute(o, "biome_river", p, origin, firstSubstitute, substitutes, true, report);
-        int border = substitute(o, "biome_border", p, origin, firstSubstitute, substitutes, true, report);
-        int mountain = substitute(o, "biome_mountain", p, origin, firstSubstitute, substitutes, true, report);
-        int underground = substitute(o, "biome_underground", p, origin, firstSubstitute, substitutes, false, report);
+        int ownSubstitutes = substitutes.size();
+        int river = substitute(o, BIOME_RIVER, p, origin, firstSubstitute, substitutes, true, report);
+        int border = substitute(o, BIOME_BORDER, p, origin, firstSubstitute, substitutes, true, report);
+        int mountain = substitute(o, BIOME_MOUNTAIN, p, origin, firstSubstitute, substitutes, true, report);
+        int underground = substitute(o, BIOME_UNDERGROUND, p, origin, firstSubstitute, substitutes, false, report);
+        for (int i = ownSubstitutes; i < substitutes.size(); i++) {
+            substitutes.set(i, substitutes.get(i).inheriting(base));
+        }
 
-        int riverWidth = Json.integer(o, "river_width", DEFAULT_RIVER_WIDTH, p, report);
+        int riverWidth = Json.integer(o, RIVER_WIDTH, DEFAULT_RIVER_WIDTH, p, report);
         if (riverWidth < 0 || riverWidth > 64) {
             report.error(p + ".river_width must be between 0 and 64");
             riverWidth = DEFAULT_RIVER_WIDTH;
         }
-        int borderWidth = Json.integer(o, "border_width", DEFAULT_BORDER_WIDTH, p, report);
+        int borderWidth = Json.integer(o, BORDER_WIDTH, DEFAULT_BORDER_WIDTH, p, report);
         if (borderWidth < 1 || borderWidth > 64) {
             report.error(p + ".border_width must be between 1 and 64");
             borderWidth = DEFAULT_BORDER_WIDTH;
         }
-        int undergroundDepth = Json.integer(o, "underground_depth", DEFAULT_UNDERGROUND_DEPTH, p, report);
+        int undergroundDepth = Json.integer(o, UNDERGROUND_DEPTH, DEFAULT_UNDERGROUND_DEPTH, p, report);
         if (undergroundDepth < 0) {
             report.error(p + ".underground_depth must not be negative");
             undergroundDepth = DEFAULT_UNDERGROUND_DEPTH;
         }
-        for (String[] rule : new String[][]{{"river_width", "biome_river"}, {"border_width", "biome_border"}, {"mountain_y", "biome_mountain"}, {"underground_depth", "biome_underground"}}) {
+        for (String[] rule : new String[][]{{RIVER_WIDTH, BIOME_RIVER}, {BORDER_WIDTH, BIOME_BORDER}, {MOUNTAIN_Y, BIOME_MOUNTAIN}, {UNDERGROUND_DEPTH, BIOME_UNDERGROUND}}) {
             if (Json.has(o, rule[0]) && !Json.has(o, rule[1])) {
                 report.warn(p + "." + rule[0] + " has no effect without " + rule[1]);
             }
         }
         slots.add(base);
-        return new Entry(color, base.biome(), base.top(), base.filler(), base.underwater(), base.fillerDepth(), river, border, mountain, underground,
-                riverWidth, borderWidth, Json.integer(o, "mountain_y", null, p, report), undergroundDepth);
+        return new Entry(color, base.biome(), river, border, mountain, underground,
+                riverWidth, borderWidth, Json.integer(o, MOUNTAIN_Y, null, p, report), undergroundDepth);
     }
 
     /** Reads {@code {"biome": ..., "top": ..., ...}}; null if invalid. */
     private static Variant parseVariant(JsonObject o, String p, String origin, ValidationReport report) {
-        String biome = Json.id(o, "biome", null, p, report);
+        String biome = Json.id(o, BIOME, null, p, report);
         if (biome == null) {
             report.error(p + ".biome is required");
             return null;
         }
-        Integer depth = Json.integer(o, "filler_depth", null, p, report);
+        Integer depth = Json.integer(o, FILLER_DEPTH, null, p, report);
         if (depth != null && (depth < 0 || depth > 64)) {
             report.error(p + ".filler_depth must be between 0 and 64");
             depth = null;
         }
-        return new Variant(biome, Json.id(o, "top", null, p, report), Json.id(o, "filler", null, p, report), Json.id(o, "underwater", null, p, report),
-                depth, MapConfig.Snow.parse(o, "snow", p, report), origin);
+        return new Variant(biome, BlockPalette.parse(o, TOP, p, report), BlockPalette.parse(o, FILLER, p, report),
+                BlockPalette.parse(o, UNDERWATER, p, report), depth, MapConfig.Snow.parse(o, SNOW, p, report),
+                MapConfig.Features.parse(o, FEATURES, p, report), MapConfig.Carvers.parse(o, CARVERS, p, report), origin);
     }
 
     /**
@@ -243,9 +295,9 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
                 report.error(sp + ": \"" + e.getAsString() + "\" is not a valid biome id");
                 return -1;
             }
-            variant = new Variant(Json.normalizeId(e.getAsString()), null, null, null, null, null, so);
+            variant = Variant.of(Json.normalizeId(e.getAsString()), so);
         } else if (withSurface && e.isJsonObject()) {
-            Json.checkKnownKeys(e.getAsJsonObject(), sp, report, concat("biome", SURFACE_KEYS));
+            Json.checkKnownKeys(e.getAsJsonObject(), sp, report, concat(BIOME, SURFACE_KEYS));
             variant = parseVariant(e.getAsJsonObject(), sp, so, report);
             if (variant == null) {
                 return -1;
@@ -262,6 +314,13 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
         String[] all = new String[rest.length + 1];
         all[0] = first;
         System.arraycopy(rest, 0, all, 1, rest.length);
+        return all;
+    }
+
+    private static String[] concat(String[] first, String[] rest) {
+        String[] all = new String[first.length + rest.length];
+        System.arraycopy(first, 0, all, 0, first.length);
+        System.arraycopy(rest, 0, all, first.length, rest.length);
         return all;
     }
 

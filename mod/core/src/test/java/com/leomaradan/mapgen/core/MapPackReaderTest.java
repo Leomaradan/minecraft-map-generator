@@ -156,7 +156,7 @@ class MapPackReaderTest {
         assertEquals(0, pack.sampler().biomeIndex(-2, 0));
         assertEquals(1, pack.sampler().biomeIndex(1, 0));
         assertEquals(-1, pack.sampler().biomeIndex(100, 0));
-        assertEquals("minecraft:sand", pack.biomeMapping().entries().get(1).top());
+        assertEquals(java.util.List.of("minecraft:sand"), pack.biomeMapping().slots().get(1).top().ids());
     }
 
     @Test
@@ -177,6 +177,7 @@ class MapPackReaderTest {
                 .put("structures.json", """
                         {
                           "$schema": "https://example.com/structures.schema.json",
+                          "coordinates": "world",
                           "structures": [
                             {"type": "template", "path": "structures/house.nbt", "x": 1, "y": "surface", "z": 2, "rotation": "clockwise_90"},
                             {"path": "structures/house.nbt", "x": 5, "y": 70, "z": 6, "mirror": "front_back"},
@@ -195,7 +196,7 @@ class MapPackReaderTest {
         StructureEntry.Template second = (StructureEntry.Template) pack.structures().get(1);
         assertEquals(70, second.y());
         assertEquals(StructureEntry.Mirror.FRONT_BACK, second.mirror());
-        assertEquals(new StructureEntry.Structure("minecraft:bastion_remnant", 500, -500), pack.structures().get(2));
+        assertEquals(new StructureEntry.Structure("minecraft:bastion_remnant", null, 500, -500), pack.structures().get(2));
         assertNotNull(pack.templates().get("structures/house.nbt"));
     }
 
@@ -240,6 +241,41 @@ class MapPackReaderTest {
     }
 
     @Test
+    void structurePositionsAreHeightmapPixels() throws IOException {
+        // 16 x 8 pixels, 4 blocks per pixel, centered: pixel 0 starts at X=-32, Z=-16.
+        MapPackReader.Result result = put("map.json", "{\"horizontal_scale\": 4}")
+                .put("heightmap.png", heightmap8(16, 8))
+                .put("structures.json", """
+                        {"structures": [
+                          {"id": "minecraft:village_desert", "fallback_id": "minecraft:village_plains", "x": 0, "z": 0},
+                          {"id": "mymod:castle", "x": 10, "z": 5},
+                          {"id": "minecraft:igloo", "x": 40, "z": 2}
+                        ]}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        java.util.List<StructureEntry> structures = result.pack().structures();
+        assertEquals(new StructureEntry.Structure("minecraft:village_desert", "minecraft:village_plains", -30, -14), structures.get(0));
+        assertEquals(-32 + 42, structures.get(1).x(), "center of pixel 10");
+        assertEquals(-16 + 22, structures.get(1).z());
+        assertTrue(anyContains(result.report().warnings(), "structures[2]: pixel 40, 2 is outside the heightmap"), result.report().toString());
+
+        MapPackReader.Result bad = put("structures.json", "{\"coordinates\": \"blocks\", \"structures\": []}").read();
+        assertFalse(bad.ok());
+        assertTrue(anyContains(bad.report().errors(), "coordinates must be \"pixels\" or \"world\""));
+    }
+
+    @Test
+    void structureFallback() {
+        StructureEntry.Structure modded = new StructureEntry.Structure("mymod:castle", "minecraft:pillager_outpost", 0, 0);
+        assertEquals("mymod:castle", modded.resolve(id -> true));
+        assertEquals("minecraft:pillager_outpost", modded.resolve(id -> id.startsWith("minecraft:")));
+        assertEquals(null, modded.resolve(id -> false));
+        assertEquals(null, new StructureEntry.Structure("mymod:castle", null, 0, 0).resolve(id -> id.startsWith("minecraft:")));
+        assertEquals(new StructureEntry.Structure("mymod:castle", "minecraft:pillager_outpost", 5, 6), modded.at(5, 6));
+    }
+
+    @Test
     void structuresMustBeAnObject() throws IOException {
         MapPackReader.Result result = put("map.json", "{}")
                 .put("heightmap.png", heightmap8(4, 4))
@@ -273,7 +309,7 @@ class MapPackReaderTest {
         BiomeMapping mapping = pack.biomeMapping();
         assertEquals(java.util.List.of("minecraft:forest", "minecraft:plains", "minecraft:river", "mymap:edge", "minecraft:lush_caves",
                 "minecraft:stony_peaks"), mapping.slots().stream().map(BiomeMapping.Variant::biome).toList());
-        assertEquals("minecraft:gravel", mapping.slots().get(3).top());
+        assertEquals(java.util.List.of("minecraft:gravel"), mapping.slots().get(3).top().ids());
         assertEquals("#00FF00.biome_border", mapping.slots().get(3).origin());
 
         TerrainSampler s = pack.sampler();
@@ -391,6 +427,96 @@ class MapPackReaderTest {
         assertEquals(0, s.biomeIndex(60, 0), "far from the water and the plains");
         assertEquals(3, s.biomeIndex(90, 0), "200 pixels from the plains: border");
         assertEquals(1, s.biomeIndex(115, 0));
+    }
+
+    @Test
+    void decorationAndBlocksPerBiome() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"blocks\": {\"default\": [\"stone\", \"andesite\"]}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", """
+                        {"#000000": {"biome": "forest", "top": {"blocks": ["grass_block", {"block": "podzol", "weight": 2}], "method": "perlin"},
+                                     "filler": "dirt", "features": {"disabled": ["trees_plains"]}, "carvers": {"canyon": false},
+                                     "biome_mountain": {"biome": "grove", "features": false, "carvers": false, "underwater": ["stone", "dirt"]}}}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        MapPack pack = result.pack();
+        BiomeMapping mapping = pack.biomeMapping();
+        BiomeMapping.Variant forest = mapping.slots().get(0);
+        assertEquals(BlockPalette.Method.PERLIN, forest.top().method());
+        assertFalse(forest.features().allows("minecraft:trees_plains", "vegetal_decoration"));
+        assertEquals(new MapConfig.Carvers(true, false), forest.carvers());
+        BiomeMapping.Variant grove = mapping.slots().get(1);
+        assertEquals(MapConfig.Features.NONE, grove.features());
+        assertEquals(MapConfig.Carvers.NONE, grove.carvers());
+        assertTrue(mapping.hasFeatureOverrides());
+        assertTrue(mapping.hasCarverOverrides());
+        assertEquals(java.util.List.of("minecraft:stone", "minecraft:andesite", "minecraft:grass_block", "minecraft:podzol", "minecraft:dirt"),
+                pack.blockIds());
+    }
+
+    @Test
+    void noDecorationOverridesByDefault() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", "{\"#000000\": \"forest\"}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        assertFalse(result.pack().biomeMapping().hasFeatureOverrides());
+        assertFalse(result.pack().biomeMapping().hasCarverOverrides());
+    }
+
+    @Test
+    void substitutesInheritDecorationOfTheirEntry() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", """
+                        {"#000000": {"biome": "old_growth_spruce_taiga", "snow": false, "carvers": false, "features": {"disabled": ["forest_rock"]},
+                                     "biome_border": "old_growth_pine_taiga", "biome_underground": "lush_caves",
+                                     "biome_mountain": {"biome": "grove", "snow": true}}}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        java.util.List<BiomeMapping.Variant> slots = result.pack().biomeMapping().slots();
+        BiomeMapping.Variant border = slots.stream().filter(v -> v.biome().equals("minecraft:old_growth_pine_taiga")).findFirst().orElseThrow();
+        assertEquals(MapConfig.Snow.NONE, border.snow(), "plain-id substitute: snow of its entry");
+        assertEquals(MapConfig.Carvers.NONE, border.carvers());
+        assertFalse(border.features().allows("minecraft:forest_rock", "local_modifications"));
+        assertEquals(MapConfig.Snow.NONE, slots.stream().filter(v -> v.biome().equals("minecraft:lush_caves")).findFirst().orElseThrow().snow());
+        BiomeMapping.Variant mountain = slots.stream().filter(v -> v.biome().equals("minecraft:grove")).findFirst().orElseThrow();
+        assertEquals(MapConfig.Snow.ALL, mountain.snow(), "own snow wins");
+        assertEquals(MapConfig.Carvers.NONE, mountain.carvers(), "the rest is inherited");
+    }
+
+    @Test
+    void biomeTransitionReachesItsWidthAndKeepsTwoPixelLinesConnected() throws IOException {
+        // Forest with a 2-pixel plains line on the columns x=64-65 (a river drawn in the biome map).
+        MapPackReader.Result result = put("map.json", "{\"origin\": [0, 0], \"biome_transition\": 16}")
+                .put("heightmap.png", heightmap8(128, 256))
+                .put("biomes.png", TestPng.rgb(128, 256, (x, y, c) -> {
+                    int rgb = x == 64 || x == 65 ? 0xFFFF00 : 0x00FF00;
+                    return (rgb >> (16 - 8 * c)) & 0xFF;
+                }))
+                .put("biomes.json", "{\"#00FF00\": \"forest\", \"#FFFF00\": \"plains\"}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        TerrainSampler s = result.pack().sampler();
+        int maxShift = 0;
+        for (int z = 0; z < 256; z++) {
+            boolean found = false;
+            for (int x = 40; x < 90; x++) {
+                if (s.biomeIndex(x, z) == 1) {
+                    maxShift = Math.max(maxShift, Math.abs(x - 64));
+                    found = true;
+                }
+            }
+            assertTrue(found, "the line crosses z=" + z);
+            assertTrue(maxShift <= 16, "shift " + maxShift + " at z=" + z);
+        }
+        assertTrue(maxShift >= 12, "the shift should reach most of biome_transition, got " + maxShift);
     }
 
     @Test

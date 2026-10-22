@@ -26,6 +26,9 @@ public final class TerrainSampler {
     /** Largest biome border shift in blocks, 0 for exact pixel borders. */
     private final int transition;
     private final double transitionWavelength;
+    /** Noise shifting the biome map along X and Z ({@code biome_transition}). */
+    private final PerlinNoise warpX = new PerlinNoise(0x5EED_0001L);
+    private final PerlinNoise warpZ = new PerlinNoise(0x5EED_0002L);
     /** Distance in pixels to the nearest water pixel, null when no entry has a river biome. */
     private final byte[] waterDistance;
     private final int originX;
@@ -79,8 +82,9 @@ public final class TerrainSampler {
         this.hasSnowRules = !this.snow.equals(MapConfig.Snow.ALL) || biomeMapping.slots().stream().anyMatch(v -> v.snow() != null);
         this.defaultMountainY = config.seaLevel() + BiomeMapping.DEFAULT_MOUNTAIN_ABOVE_SEA;
         this.transition = config.biomeTransition();
-        // Wavelength long enough for the shift to stay smooth: thin features (rivers) stay connected.
-        this.transitionWavelength = Math.max(8, 4 * this.transition);
+        // The shift (up to 2 x 3.6 x transition / wavelength per block) changes by less than one block per block:
+        // features 2 pixels wide stay connected (1-pixel lines can have gaps where consecutive blocks skip a pixel).
+        this.transitionWavelength = Math.max(8, 7.5 * this.transition);
         this.scale = config.horizontalScale();
         this.width = heightmap.width();
         this.height = heightmap.height();
@@ -106,6 +110,20 @@ public final class TerrainSampler {
 
     public int endZ() {
         return this.originZ + (int) Math.ceil(this.height * this.scale);
+    }
+
+    /** World X of the center of the pixel column {@code px}. */
+    public int pixelToWorldX(int px) {
+        return this.originX + (int) Math.floor((px + 0.5) * this.scale);
+    }
+
+    /** World Z of the center of the pixel row {@code pz}. */
+    public int pixelToWorldZ(int pz) {
+        return this.originZ + (int) Math.floor((pz + 0.5) * this.scale);
+    }
+
+    public boolean isPixelInside(int px, int pz) {
+        return px >= 0 && pz >= 0 && px < this.width && pz < this.height;
     }
 
     public boolean isInside(int x, int z) {
@@ -173,8 +191,8 @@ public final class TerrainSampler {
         double bx = x;
         double bz = z;
         if (this.transition > 0) {
-            bx += this.transition * warp(x, z, 0x5EED_0001);
-            bz += this.transition * warp(x, z, 0x5EED_0002);
+            bx += this.transition * this.warp(this.warpX, x, z);
+            bz += this.transition * this.warp(this.warpZ, x, z);
         }
         int bpx = clamp((int) Math.floor((bx - this.originX) / this.scale), this.width);
         int bpz = clamp((int) Math.floor((bz - this.originZ) / this.scale), this.height);
@@ -217,38 +235,10 @@ public final class TerrainSampler {
         return distance < BiomeRaster.MAX_BORDER_DISTANCE && distance * this.scale < width;
     }
 
-    /** Smooth noise in [-1, 1]: two octaves of value noise. */
-    private double warp(int x, int z, long seed) {
-        double u = x / this.transitionWavelength;
-        double v = z / this.transitionWavelength;
-        return 0.67 * valueNoise(u, v, seed) + 0.33 * valueNoise(u * 2, v * 2, seed + 1);
-    }
-
-    private static double valueNoise(double u, double v, long seed) {
-        int x0 = (int) Math.floor(u);
-        int z0 = (int) Math.floor(v);
-        double tx = smooth(u - x0);
-        double tz = smooth(v - z0);
-        double top = lerp(lattice(x0, z0, seed), lattice(x0 + 1, z0, seed), tx);
-        double bottom = lerp(lattice(x0, z0 + 1, seed), lattice(x0 + 1, z0 + 1, seed), tx);
-        return lerp(top, bottom, tz);
-    }
-
-    /** Pseudo-random value in [-1, 1] for a lattice point (SplitMix64 finalizer). */
-    private static double lattice(int x, int z, long seed) {
-        long h = seed ^ (x * 0x9E3779B97F4A7C15L) ^ (z * 0xC2B2AE3D27D4EB4FL);
-        h = (h ^ (h >>> 30)) * 0xBF58476D1CE4E5B9L;
-        h = (h ^ (h >>> 27)) * 0x94D049BB133111EBL;
-        h ^= h >>> 31;
-        return (h >>> 11) * 0x1.0p-52 - 1.0;
-    }
-
-    private static double smooth(double t) {
-        return t * t * (3 - 2 * t);
-    }
-
-    private static double lerp(double a, double b, double t) {
-        return a + (b - a) * t;
+    /** Smooth noise in [-1, 1]: Perlin noise, doubled so the shift often reaches the full transition. */
+    private double warp(PerlinNoise noise, int x, int z) {
+        double n = 2 * noise.noise(x / this.transitionWavelength, 0.5, z / this.transitionWavelength);
+        return Math.clamp(n, -1.0, 1.0);
     }
 
     /** Terrain height only; {@link #NONE} for void columns. */

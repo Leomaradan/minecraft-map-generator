@@ -190,12 +190,12 @@ BIOME_MAPPING = {
 
 
 def structures():
-    # Pixel (px, pz) -> world (px - 128, pz - 128): the map is centered on 0, 0.
+    # Positions are heightmap pixels (the map is centered on 0, 0: pixel 128, 128 is X=0, Z=0).
     return {"$schema": SCHEMAS + "structures.schema.json", "structures": [
-        {"type": "template", "path": "structures/hut.nbt", "x": 100 - 128, "y": "surface", "z": 150 - 128, "rotation": "clockwise_90"},
-        {"type": "template", "path": "structures/hut.nbt", "x": 165 - 128, "y": "surface", "z": 160 - 128},
-        {"type": "structure", "id": "minecraft:village_plains", "x": 60 - 128, "z": 140 - 128},
-        {"type": "structure", "id": "minecraft:pillager_outpost", "x": 180 - 128, "z": 195 - 128},
+        {"type": "template", "path": "structures/hut.nbt", "x": 100, "y": "surface", "z": 150, "rotation": "clockwise_90"},
+        {"type": "template", "path": "structures/hut.nbt", "x": 165, "y": "surface", "z": 160},
+        {"type": "structure", "id": "minecraft:village_plains", "x": 60, "z": 140},
+        {"type": "structure", "id": "minecraft:pillager_outpost", "fallback_id": "minecraft:village_plains", "x": 180, "z": 195},
     ]}
 
 

@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /** Turns a map pack into world settings: generator, datapacks. */
 public final class MapWorlds {
@@ -66,23 +67,27 @@ public final class MapWorlds {
 
     /** Extra checks needing registries: blocks and structures named by the pack. */
     public static void validateRegistries(MapPack pack, HolderGetter<Structure> structures, ValidationReport report) {
-        List<String> blocks = new ArrayList<>();
-        blocks.add(pack.config().blocks().defaultBlock());
-        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
-            blocks.add(slot.top());
-            blocks.add(slot.filler());
-            blocks.add(slot.underwater());
-        }
-        for (String block : blocks) {
-            if (block != null && BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
+        for (String block : pack.blockIds()) {
+            if (BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
                 report.error("block " + block + " does not exist");
             }
         }
         for (StructureEntry entry : pack.structures()) {
-            if (entry instanceof StructureEntry.Structure structure
-                    && structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(structure.id()))).isEmpty()) {
-                report.error("structure " + structure.id() + " (at " + structure.x() + ", " + structure.z() + ") does not exist");
+            if (entry instanceof StructureEntry.Structure structure) {
+                reportMissingStructure(structure, id -> structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(id))).isPresent(), report);
             }
+        }
+    }
+
+    /** Warns about a structure that doesn't exist: it uses its fallback_id, or is skipped. */
+    public static void reportMissingStructure(StructureEntry.Structure structure, Predicate<String> exists, ValidationReport report) {
+        String resolved = structure.resolve(exists);
+        String at = " (at " + structure.x() + ", " + structure.z() + ")";
+        if (resolved == null) {
+            report.warn("structure " + structure.id() + at + " does not exist" + (structure.fallbackId() != null ? ", nor its fallback_id "
+                    + structure.fallbackId() : "") + ": it is skipped");
+        } else if (!resolved.equals(structure.id())) {
+            report.warn("structure " + structure.id() + at + " does not exist: its fallback_id " + resolved + " is used");
         }
     }
 

@@ -113,6 +113,17 @@ a biome:
     "snow": { "min_y": 400 },
     "biome_mountain": { "biome": "minecraft:grove", "snow": true },
     "mountain_y": 600
+  },
+  "#8A8F5A": {
+    "biome": "minecraft:old_growth_pine_taiga",
+    "top": {
+      "blocks": [{ "block": "minecraft:podzol", "weight": 3 }, "minecraft:coarse_dirt"],
+      "method": "perlin",
+      "scale": 12
+    },
+    "filler": ["minecraft:dirt", "minecraft:dirt", "minecraft:gravel"],
+    "features": { "disabled": ["minecraft:forest_rock"] },
+    "carvers": { "cave": true, "canyon": false }
   }
 }
 ```
@@ -124,7 +135,11 @@ a biome:
   grass and dirt; sand for beaches, deserts and rivers; gravel for oceans; red sand and
   terracotta for badlands; mycelium for mushroom fields; snow for snowy peaks; netherrack/end
   stone for Nether/End biomes. `underwater` is used for the top blocks under water or lava.
+  `top`, `filler` and `underwater` take a block id or a mix of blocks (see
+  [Block lists](#block-lists)).
 * `snow` is optional: where snow and ice may form in this biome (see [Snow](#snow)).
+* `features` and `carvers` are optional: they replace `decoration.features` and
+  `decoration.carvers` of `map.json` in this biome (see [Decoration per biome](#decoration-per-biome)).
 * Colors missing from the mapping use the nearest mapped color (a warning lists them).
 
 Without a biome map, the whole map uses the outside biome.
@@ -132,9 +147,11 @@ Without a biome map, the whole map uses the outside biome.
 ### Substitute biomes
 
 An entry can replace its biome in some places. Each substitute is optional. Its value is a biome
-id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater` and `snow`.
+id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater`, `snow`,
+`features` and `carvers`.
 A substitute given as a plain id uses the default surface blocks of that biome, not the
-entry's blocks.
+entry's blocks. A substitute uses the `snow`, `features` and `carvers` of its entry, unless it
+sets its own (in its object form).
 
 | Key | Used | Setting |
 |---|---|---|
@@ -152,9 +169,13 @@ features (moss, dripstone...). The edges of the map image don't count as a borde
 
 Borders between biomes don't follow the pixel edges exactly. They are shifted by a smooth noise,
 up to `biome_transition` blocks (`map.json`, default `4`), so a straight line between a desert
-and a savanna becomes a natural curve. The noise is the same in every world made from the map,
-and it is smooth enough that a 1-pixel river stays connected. Set `"biome_transition": 0` to
-keep the exact pixel borders.
+and a savanna becomes a natural curve, about `7.5 × biome_transition` blocks long. The noise is
+the same in every world made from the map. Set `"biome_transition": 0` to keep the exact pixel
+borders.
+
+The noise is smooth enough that a band 2 pixels wide drawn in the biome map stays connected; a
+1-pixel band (with `horizontal_scale` 1) can have small gaps. Rivers made with the water map and
+`biome_river` are not shifted.
 
 Grass, foliage and water colors are also blended by the game's "Biome Blend" video setting.
 That's why some transitions (meadow to swamp) already looked smooth while changes of surface
@@ -178,6 +199,54 @@ generated (the `freeze_top_layer` feature) and to snowfall during the game. Snow
 surface (`top`, snowy peaks) and snowy biome features (ice spikes, powder snow) are not affected.
 Where snow can't settle, snowflakes still fall during a storm, as the client doesn't know the
 setting.
+
+### Decoration per biome
+
+`features` and `carvers` take the same values as `decoration.features` and
+`decoration.carvers` in `map.json`. On an entry or a substitute object, they replace the values
+of `map.json` there (they are not combined):
+
+```json
+{
+  "#5DBB4F": { "biome": "minecraft:plains", "features": { "disabled_steps": ["lakes"] } },
+  "#A0A0A0": { "biome": "minecraft:stony_peaks", "carvers": false, "features": false }
+}
+```
+
+* Features are checked where they are placed: an ore placed underground uses the `features` of
+  the slot there (`biome_underground` uses `map.json`'s, as it can't have its own). Features
+  that don't check their biome (rare) can't be filtered per biome.
+* Carvers are picked per chunk, from the biome at the north-west corner of the chunk where the
+  cave starts, like in vanilla. A cave can cross into a neighbor biome that has no carvers.
+
+## Block lists
+
+Every block of `biomes.json` (`top`, `filler`, `underwater`) and `blocks.default` in `map.json`
+can be a single block id, or a mix of blocks:
+
+```json
+"top": "minecraft:grass_block"
+"top": ["minecraft:grass_block", "minecraft:coarse_dirt"]
+"top": [{ "block": "minecraft:grass_block", "weight": 3 }, "minecraft:coarse_dirt"]
+"top": {
+  "blocks": [{ "block": "minecraft:grass_block", "weight": 3 }, "minecraft:coarse_dirt"],
+  "method": "perlin",
+  "scale": 12
+}
+```
+
+* A list picks one of its blocks for each position. `weight` is the relative probability
+  (default `1`, a plain id counts as `1`): above, grass covers about 3/4 of the surface.
+* The object form chooses how blocks are picked with `method`:
+
+  | `method` | Result |
+  |---|---|
+  | `random` (default) | each block is picked independently: a speckled mix |
+  | `perlin` | smooth 3D noise: the blocks form patches about `scale` blocks wide (default `16`) |
+
+* The same position always gives the same block, in every world made from the map. Each layer
+  has its own pattern, so a `top` and a `filler` with the same blocks don't line up.
+* A block that doesn't exist is reported when the map is loaded, like a single block id.
 
 ## `map.json`
 
@@ -243,15 +312,15 @@ Every field is optional. Unknown keys produce a warning.
 | `outside.biome` | `minecraft:plains` | Biome around the map (and everywhere without a biome map). |
 | `outside.border` | `true` | Puts a world border around the map when the world is created, so players can't leave it. The border is a square: it fits the longest side of the map, centered on it, so a non-square map has some outside terrain on its short sides. Without a `spawn`, a spawn that vanilla picked outside the border moves to the center of the map. Change it later with `/worldborder`. |
 | `spawn` | vanilla | World spawn. Without `y`, the spawn is on the surface. |
-| `blocks.default` | `minecraft:stone` | Block under the surface layers. |
+| `blocks.default` | `minecraft:stone` | Blocks under the surface layers: a block id or a [block list](#block-lists). |
 | `blocks.bedrock` | `true` | Bedrock at the bottom of the world. |
 | `snow` | `true` | Where snow layers and ice may form: `true`, `false` or `{min_y, max_y}`. See [Snow](#snow). |
-| `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). |
+| `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). An entry of `biomes.json` can override it. |
 | `decoration.features.enabled` | `true` | `false` turns every feature off. |
 | `decoration.features.disabled` | `[]` | Placed features to skip, e.g. `minecraft:lake_lava_surface`. |
 | `decoration.features.disabled_steps` | `[]` | Generation steps to skip entirely (see below). |
 | `decoration.features.only` | all | If set, only these placed features are generated. |
-| `decoration.carvers` | `true` | Caves and ravines from the biomes. They don't break into the map's water and lava. |
+| `decoration.carvers` | `true` | Caves and ravines from the biomes: `true`, `false`, or `{"cave": bool, "canyon": bool}` (each `true` by default). They don't break into the map's water and lava. An entry of `biomes.json` can override it. |
 | `vanilla_structures.enabled` | `true` | Random structures (villages, temples...). `"vanilla_structures": false` is a shorthand. |
 | `vanilla_structures.disabled` | `[]` | Structures or structure sets to turn off, e.g. `minecraft:village_plains` or `minecraft:villages`. |
 | `vanilla_structures.only` | all | If set, only these structures or structure sets are generated. |
@@ -271,23 +340,28 @@ generated, nor the `structure` entries of `structures.json` (templates are still
 
 ## `structures.json`
 
-Structures placed at fixed coordinates (world coordinates, not pixels):
+Structures placed at fixed positions. `x` and `z` are pixels of the heightmap: the structure goes
+to the center of that pixel in the world, wherever `origin` and `horizontal_scale` put it.
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/structures.schema.json",
   "structures": [
-    { "type": "template", "path": "structures/castle.nbt", "x": 120, "y": "surface", "z": -40,
+    { "type": "template", "path": "structures/castle.nbt", "x": 120, "y": "surface", "z": 40,
       "y_offset": -1, "rotation": "clockwise_90", "mirror": "none", "entities": true },
     { "type": "template", "path": "structures/tower.nbt", "x": 300, "y": 95, "z": 12 },
-    { "type": "structure", "id": "minecraft:pillager_outpost", "x": 500, "z": 500 },
-    { "type": "structure", "id": "minecraft:bastion_remnant", "x": -800, "z": 200 }
+    { "type": "structure", "id": "minecraft:village_desert", "x": 547, "z": 2287 },
+    { "type": "structure", "id": "mymod:castle", "fallback_id": "minecraft:pillager_outpost", "x": 800, "z": 200 }
   ]
 }
 ```
 
-A file that is only the list (the format before `"structures"` existed) still works, with a
-warning.
+* With `"coordinates": "world"` next to `"structures"`, `x` and `z` are world block
+  coordinates instead.
+* A position outside the heightmap gives a warning (the structure is still placed).
+* `y` is always a world Y.
+* A file that is only the list (the format before `"structures"` existed) still works, with a
+  warning. Its positions are world coordinates, as they were then.
 
 * **`template`**: a structure template file from the ZIP (`.nbt`, as saved by a Structure Block
   or Minecraft's tools). Its origin (the corner with the smallest coordinates before rotation) is
@@ -300,6 +374,9 @@ warning.
   the ones `/place structure` accepts. It is generated in the chunk containing `x, z`; the exact
   position inside the chunk and the height are chosen by the structure itself. Biome rules are
   ignored. These structures are found by `/locate structure`.
+  When `id` doesn't exist (a structure from a mod that isn't installed), `fallback_id` is used
+  instead; without a `fallback_id` that exists, the structure is skipped. Both cases are reported
+  as warnings when the map is loaded.
 
 `type` can be omitted: an entry with `path` is a template, one with `id` a structure.
 

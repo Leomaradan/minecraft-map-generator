@@ -33,7 +33,8 @@
           "description": "Path of the .nbt file in the ZIP."
         },
         "x": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Heightmap pixel (or world X with \"coordinates\": \"world\")."
         },
         "y": {
           "oneOf": [
@@ -48,7 +49,8 @@
           "description": "Y of the template origin, or \"surface\"."
         },
         "z": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Heightmap pixel (or world Z with \"coordinates\": \"world\")."
         },
         "y_offset": {
           "type": "integer",
@@ -95,11 +97,17 @@
         "id": {
           "$ref": "#/$defs/resource_id"
         },
+        "fallback_id": {
+          "$ref": "#/$defs/resource_id",
+          "description": "Structure used when id doesn't exist (e.g. from a mod that isn't installed). Without a fallback that exists, the structure is skipped."
+        },
         "x": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Heightmap pixel (or world X with \"coordinates\": \"world\")."
         },
         "z": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Heightmap pixel (or world Z with \"coordinates\": \"world\")."
         }
       }
     }
@@ -107,6 +115,14 @@
   "properties": {
     "$schema": {
       "type": "string"
+    },
+    "coordinates": {
+      "enum": [
+        "pixels",
+        "world"
+      ],
+      "default": "pixels",
+      "description": "Unit of x and z: heightmap pixels (placed at the center of the pixel in the world) or world block coordinates."
     },
     "structures": {
       "type": "array",

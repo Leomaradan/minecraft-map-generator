@@ -139,22 +139,13 @@ public final class MapPackReader {
             report.warn(files.biomeMapping() + " is present but there is no biome map (" + files.biomes() + "); it is ignored");
         }
 
-        // Structures
-        List<StructureEntry> structures = List.of();
-        Map<String, byte[]> templates = new HashMap<>();
+        // Structures: read once the sampler exists (positions are in pixels)
+        JsonElement structuresJson = null;
         if (files.explicitStructures() || entries.containsKey(files.structures())) {
             if (!entries.containsKey(files.structures())) {
                 report.error(files.structures() + " is not in the ZIP");
             } else {
-                JsonElement structuresJson = readJson(zip, entries.get(files.structures()), files.structures(), report);
-                if (structuresJson != null) {
-                    structures = StructureEntry.parseList(structuresJson, files.structures(), entries.keySet(), report);
-                    for (StructureEntry entry : structures) {
-                        if (entry instanceof StructureEntry.Template template && !templates.containsKey(template.path())) {
-                            templates.put(template.path(), readBytes(zip, entries.get(template.path())));
-                        }
-                    }
-                }
+                structuresJson = readJson(zip, entries.get(files.structures()), files.structures(), report);
             }
         }
 
@@ -184,6 +175,20 @@ public final class MapPackReader {
             return null;
         }
         TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes, biomeMapping);
+
+        List<StructureEntry> structures = List.of();
+        Map<String, byte[]> templates = new HashMap<>();
+        if (structuresJson != null) {
+            structures = StructureEntry.parseList(structuresJson, files.structures(), entries.keySet(), sampler, report);
+            for (StructureEntry entry : structures) {
+                if (entry instanceof StructureEntry.Template template && !templates.containsKey(template.path())) {
+                    templates.put(template.path(), readBytes(zip, entries.get(template.path())));
+                }
+            }
+        }
+        if (report.hasErrors()) {
+            return null;
+        }
         return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
                 Map.copyOf(templates), datapack, layout, sampler);
     }
