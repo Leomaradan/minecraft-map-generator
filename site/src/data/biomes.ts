@@ -1,0 +1,18 @@
+export const VANILLA_BIOMES = [
+  'badlands', 'bamboo_jungle', 'basalt_deltas', 'beach', 'birch_forest', 'cherry_grove', 'cold_ocean', 'crimson_forest',
+  'dark_forest', 'deep_cold_ocean', 'deep_dark', 'deep_frozen_ocean', 'deep_lukewarm_ocean', 'deep_ocean', 'desert',
+  'dripstone_caves', 'end_barrens', 'end_highlands', 'end_midlands', 'eroded_badlands', 'flower_forest', 'forest',
+  'frozen_ocean', 'frozen_peaks', 'frozen_river', 'grove', 'ice_spikes', 'jagged_peaks', 'jungle', 'lukewarm_ocean',
+  'lush_caves', 'mangrove_swamp', 'meadow', 'mushroom_fields', 'nether_wastes', 'ocean', 'old_growth_birch_forest',
+  'old_growth_pine_taiga', 'old_growth_spruce_taiga', 'pale_garden', 'plains', 'river', 'savanna', 'savanna_plateau',
+  'small_end_islands', 'snowy_beach', 'snowy_plains', 'snowy_slopes', 'snowy_taiga', 'soul_sand_valley',
+  'sparse_jungle', 'stony_peaks', 'stony_shore', 'sunflower_plains', 'swamp', 'taiga', 'the_end', 'the_void',
+  'warm_ocean', 'warped_forest', 'windswept_forest', 'windswept_gravelly_hills', 'windswept_hills', 'windswept_savanna',
+  'wooded_badlands',
+].map((b) => `minecraft:${b}`);
+
+export const COMMON_BLOCKS = [
+  'grass_block', 'dirt', 'coarse_dirt', 'podzol', 'mycelium', 'sand', 'red_sand', 'sandstone', 'gravel', 'clay', 'stone',
+  'deepslate', 'terracotta', 'snow_block', 'powder_snow', 'moss_block', 'mud', 'netherrack', 'end_stone', 'cobblestone',
+  'andesite', 'granite', 'diorite', 'calcite', 'packed_ice', 'ice', 'rooted_dirt', 'bedrock',
+].map((b) => `minecraft:${b}`);
