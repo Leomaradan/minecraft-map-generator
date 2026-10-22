@@ -161,9 +161,19 @@ class TerrainSamplerTest {
         assertTrue(only.allows("minecraft:ore_iron_upper", "underground_ores"));
         assertFalse(only.allows("minecraft:ore_gold", "underground_ores"));
 
-        ValidationReport report = new ValidationReport();
-        MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"features\": {\"disabled_steps\": [\"lake\"]}}}").getAsJsonObject(), report);
-        assertTrue(report.hasErrors());
+        assertTrue(MapConfig.Features.ALL.isUnfiltered());
+        assertEquals(MapConfig.Features.ALL, config("{\"decoration\": {\"features\": null}}").decoration().features());
+        MapConfig.Features disabled = config("{\"decoration\": {\"features\": {\"enabled\": false}}}").decoration().features();
+        assertFalse(disabled.allows("minecraft:trees_plains", "vegetal_decoration"));
+        assertTrue(disabled.isUnfiltered());
+        assertTrue(config("{\"decoration\": {\"features\": {\"disabled_steps\": [\"LAKES\"]}}}").decoration().features().disabledSteps()
+                .contains("lakes"));
+
+        for (String steps : new String[]{"[\"lake\"]", "[3]"}) {
+            ValidationReport report = new ValidationReport();
+            MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"features\": {\"disabled_steps\": " + steps + "}}}").getAsJsonObject(), report);
+            assertTrue(report.hasErrors(), steps);
+        }
     }
 
     @Test
@@ -180,6 +190,9 @@ class TerrainSamplerTest {
         ValidationReport report = new ValidationReport();
         MapConfig.parse(JsonParser.parseString("{\"biome_transition\": 100}").getAsJsonObject(), report);
         assertTrue(report.hasErrors());
+        ValidationReport negative = new ValidationReport();
+        MapConfig.parse(JsonParser.parseString("{\"biome_transition\": -1}").getAsJsonObject(), negative);
+        assertTrue(negative.hasErrors());
     }
 
     @Test

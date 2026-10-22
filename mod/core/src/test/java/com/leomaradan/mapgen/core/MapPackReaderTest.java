@@ -240,6 +240,16 @@ class MapPackReaderTest {
     }
 
     @Test
+    void structuresMustBeAnObject() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("structures.json", "\"castle\"")
+                .read();
+        assertFalse(result.ok());
+        assertTrue(anyContains(result.report().errors(), "structures.json must be a JSON object"));
+    }
+
+    @Test
     void readsSubstituteBiomes() throws IOException {
         // Left half forest, right half plains; height 60 + x; water on the column x=0.
         byte[] biomes = TestPng.rgb(8, 8, (x, y, c) -> {
@@ -333,6 +343,65 @@ class MapPackReaderTest {
         assertTrue(anyContains(result.report().errors(), "biome_underground must be a biome id"));
         assertTrue(anyContains(result.report().errors(), "border_width must be between 1 and 64"));
         assertTrue(anyContains(result.report().warnings(), "mountain_y has no effect without biome_mountain"));
+    }
+
+    @Test
+    void moreSubstituteErrors() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", """
+                        {
+                          "#000000": {"biome": "forest", "biome_river": "Not Valid", "river_width": 65, "biome_border": {"top": "minecraft:sand"},
+                                      "biome_mountain": 3, "biome_underground": "lush_caves", "underground_depth": -1},
+                          "0,0,0": "plains",
+                          "#FFFFFF": {"top": "minecraft:sand"},
+                          "#FF0000": 12
+                        }
+                        """)
+                .read();
+        assertFalse(result.ok());
+        java.util.List<String> errors = result.report().errors();
+        assertTrue(anyContains(errors, "biome_river: \"Not Valid\" is not a valid biome id"), errors.toString());
+        assertTrue(anyContains(errors, "river_width must be between 0 and 64"));
+        assertTrue(anyContains(errors, "biome_border.biome is required"));
+        assertTrue(anyContains(errors, "biome_mountain must be a biome id or an object"));
+        assertTrue(anyContains(errors, "underground_depth must not be negative"));
+        assertTrue(anyContains(errors, "#000000 is mapped twice"));
+        assertTrue(anyContains(errors, "[\"#FFFFFF\"].biome is required"));
+        assertTrue(anyContains(errors, "[\"#FF0000\"] must be a biome id or an object"));
+    }
+
+    @Test
+    void cappedDistancesAreFarAway() throws IOException {
+        // 0.1 block per pixel: distances stop at 255 pixels (25.5 blocks), less than the widths.
+        // Forest up to pixel 1100, plains after; water on the column x=0.
+        MapPackReader.Result result = put("map.json", "{\"origin\": [0, 0], \"horizontal_scale\": 0.1, \"biome_transition\": 0}")
+                .put("heightmap.png", TestPng.gray(1200, 2, 8, (x, y, c) -> 60))
+                .put("water.png", TestPng.gray(1200, 2, 8, (x, y, c) -> x == 0 ? 80 : 0))
+                .put("biomes.png", TestPng.rgb(1200, 2, (x, y, c) -> c == 1 || (c == 0 && x >= 1100) ? 0xFF : 0))
+                .put("biomes.json", """
+                        {"#00FF00": {"biome": "forest", "biome_river": "river", "river_width": 30, "biome_border": "birch_forest", "border_width": 40},
+                         "#FFFF00": "plains"}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        TerrainSampler s = result.pack().sampler();
+        assertEquals(2, s.biomeIndex(20, 0), "200 pixels from the water: river bank");
+        assertEquals(0, s.biomeIndex(60, 0), "far from the water and the plains");
+        assertEquals(3, s.biomeIndex(90, 0), "200 pixels from the plains: border");
+        assertEquals(1, s.biomeIndex(115, 0));
+    }
+
+    @Test
+    void riversNeedABiomeMap() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"origin\": [0, 0]}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("water.png", TestPng.gray(4, 4, 8, (x, y, c) -> x == 0 ? 80 : 0))
+                .put("biomes.json", "{\"#00FF00\": {\"biome\": \"forest\", \"biome_river\": \"river\"}}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        assertEquals(-1, result.pack().sampler().biomeIndex(0, 0));
     }
 
     @Test

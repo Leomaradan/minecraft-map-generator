@@ -82,7 +82,8 @@ public final class TerrainSampler {
         // Default origin: the map is centered on X=0, Z=0.
         this.originX = config.originX() != null ? config.originX() : -(int) Math.floor(this.width * this.scale / 2);
         this.originZ = config.originZ() != null ? config.originZ() : -(int) Math.floor(this.height * this.scale / 2);
-        this.waterDistance = water != null && biomeMapping.hasRivers() ? this.computeWaterDistance() : null;
+        // Only read when there is a biome map to put the rivers on.
+        this.waterDistance = water != null && biomes != null && biomeMapping.hasRivers() ? this.computeWaterDistance() : null;
     }
 
     public int originX() {
@@ -183,7 +184,7 @@ public final class TerrainSampler {
             slot = entry.riverSlot();
         } else if (entry.mountainSlot() >= 0 && out.terrainY >= (entry.mountainY() != null ? entry.mountainY() : this.defaultMountainY)) {
             slot = entry.mountainSlot();
-        } else if (entry.hasBorder() && this.biomes.borderDistance(bpx, bpz) * this.scale < entry.borderWidth()) {
+        } else if (entry.hasBorder() && this.isBorder(bpx, bpz, entry.borderWidth())) {
             slot = entry.borderSlot();
         }
         out.biome = slot;
@@ -193,9 +194,22 @@ public final class TerrainSampler {
         }
     }
 
-    /** True if the pixel is within {@code width} blocks of a water pixel. */
+    /**
+     * True if the pixel is within {@code width} blocks of a water pixel. A distance capped at {@link DistanceField#MAX}
+     * is farther than any width (it matters when a pixel is smaller than a quarter of a block); same for borders.
+     */
     private boolean isRiverBank(int px, int pz, int width) {
-        return this.waterDistance != null && (this.waterDistance[pz * this.width + px] & 0xFF) * this.scale <= width;
+        if (this.waterDistance == null) {
+            return false;
+        }
+        int distance = this.waterDistance[pz * this.width + px] & 0xFF;
+        return distance < DistanceField.MAX && distance * this.scale <= width;
+    }
+
+    /** True if the biome pixel is less than {@code width} blocks from a pixel of another entry. */
+    private boolean isBorder(int bpx, int bpz, int width) {
+        int distance = this.biomes.borderDistance(bpx, bpz);
+        return distance < BiomeRaster.MAX_BORDER_DISTANCE && distance * this.scale < width;
     }
 
     /** Smooth noise in [-1, 1]: two octaves of value noise. */
