@@ -46,11 +46,11 @@ public record MapPack(
         return !this.datapack.isEmpty();
     }
 
-    /** All biome ids the map can produce: mapped biomes, then the outside biome. */
+    /** All biome ids the map can produce: mapped biomes and their substitutes, then the outside biome. */
     public List<String> biomeIds() {
         java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
-        for (BiomeMapping.Entry e : this.biomeMapping.entries()) {
-            ids.add(e.biome());
+        for (BiomeMapping.Variant v : this.biomeMapping.slots()) {
+            ids.add(v.biome());
         }
         ids.add(this.config.outside().biome());
         return List.copyOf(ids);

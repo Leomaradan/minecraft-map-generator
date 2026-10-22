@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/structures.schema.json",
+  "title": "Map Generator structures.json",
+  "description": "Structures placed at fixed world coordinates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "structures"
+  ],
+  "$defs": {
+    "resource_id": {
+      "type": "string",
+      "pattern": "^([a-z0-9_.-]+:)?[a-z0-9_./-]+$",
+      "description": "Resource id; without a namespace, minecraft: is used."
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "x",
+        "z"
+      ],
+      "description": "A structure template (.nbt) from the ZIP.",
+      "properties": {
+        "type": {
+          "const": "template"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "\\.nbt$",
+          "description": "Path of the .nbt file in the ZIP."
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "const": "surface"
+            }
+          ],
+          "default": "surface",
+          "description": "Y of the template origin, or \"surface\"."
+        },
+        "z": {
+          "type": "integer"
+        },
+        "y_offset": {
+          "type": "integer",
+          "default": 0,
+          "description": "Added to the surface Y when y is \"surface\"."
+        },
+        "rotation": {
+          "enum": [
+            "none",
+            "clockwise_90",
+            "clockwise_180",
+            "counterclockwise_90"
+          ],
+          "default": "none"
+        },
+        "mirror": {
+          "enum": [
+            "none",
+            "left_right",
+            "front_back"
+          ],
+          "default": "none"
+        },
+        "entities": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also place the template's entities."
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "x",
+        "z"
+      ],
+      "description": "A registered structure, generated in the chunk containing x, z.",
+      "properties": {
+        "type": {
+          "const": "structure"
+        },
+        "id": {
+          "$ref": "#/$defs/resource_id"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "z": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "structures": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/template"
+          },
+          {
+            "$ref": "#/$defs/structure"
+          }
+        ]
+      }
+    }
+  }
+}

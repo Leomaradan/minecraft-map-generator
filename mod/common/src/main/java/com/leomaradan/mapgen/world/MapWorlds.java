@@ -45,10 +45,10 @@ public final class MapWorlds {
      */
     public static @Nullable MapChunkGenerator createGenerator(MapPack pack, HolderGetter<Biome> biomes, ValidationReport report) {
         List<Holder<Biome>> mapped = new ArrayList<>();
-        for (BiomeMapping.Entry entry : pack.biomeMapping().entries()) {
-            Holder<Biome> biome = biome(biomes, entry.biome());
+        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
+            Holder<Biome> biome = biome(biomes, slot.biome());
             if (biome == null) {
-                report.error("biome " + entry.biome() + " (color " + BiomeMapping.formatColor(entry.color())
+                report.error("biome " + slot.biome() + " (" + slot.origin()
                         + ") does not exist; add it with the ZIP datapack or install the mod that provides it");
             } else {
                 mapped.add(biome);
@@ -68,10 +68,10 @@ public final class MapWorlds {
     public static void validateRegistries(MapPack pack, HolderGetter<Structure> structures, ValidationReport report) {
         List<String> blocks = new ArrayList<>();
         blocks.add(pack.config().blocks().defaultBlock());
-        for (BiomeMapping.Entry entry : pack.biomeMapping().entries()) {
-            blocks.add(entry.top());
-            blocks.add(entry.filler());
-            blocks.add(entry.underwater());
+        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
+            blocks.add(slot.top());
+            blocks.add(slot.filler());
+            blocks.add(slot.underwater());
         }
         for (String block : blocks) {
             if (block != null && BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {

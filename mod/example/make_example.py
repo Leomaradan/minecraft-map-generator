@@ -22,6 +22,7 @@ import zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIZE = 256
 DATA_VERSION = 5023  # Minecraft 26.3
+SCHEMAS = "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/"
 
 # ---------------------------------------------------------------------------------------------
 # PNG / NBT writers
@@ -175,35 +176,41 @@ def terrain():
 
 
 BIOME_MAPPING = {
+    "$schema": SCHEMAS + "biomes.schema.json",
     "#1E3C8C": "minecraft:ocean",
     "#F0DC82": "minecraft:beach",
-    "#5DBB4F": "minecraft:plains",
-    "#22662A": "minecraft:forest",
-    "#E8C060": "minecraft:desert",
+    "#5DBB4F": {"biome": "minecraft:plains", "biome_river": "minecraft:river"},
+    "#22662A": {"biome": "minecraft:forest", "biome_underground": "minecraft:lush_caves"},
+    "#E8C060": {"biome": "minecraft:desert", "biome_border": "minecraft:savanna", "border_width": 3},
     "#C850E6": {"biome": "example:crystal_fields", "top": "minecraft:moss_block", "filler": "minecraft:dirt", "filler_depth": 4},
-    "#F0F0F0": {"biome": "minecraft:snowy_slopes", "top": "minecraft:snow_block", "filler": "minecraft:stone"},
+    "#F0F0F0": {"biome": "minecraft:snowy_slopes", "top": "minecraft:snow_block", "filler": "minecraft:stone",
+                "biome_river": {"biome": "minecraft:frozen_river", "underwater": "minecraft:gravel"},
+                "biome_underground": "minecraft:dripstone_caves"},
 }
 
 
 def structures():
     # Pixel (px, pz) -> world (px - 128, pz - 128): the map is centered on 0, 0.
-    return [
+    return {"$schema": SCHEMAS + "structures.schema.json", "structures": [
         {"type": "template", "path": "structures/hut.nbt", "x": 100 - 128, "y": "surface", "z": 150 - 128, "rotation": "clockwise_90"},
         {"type": "template", "path": "structures/hut.nbt", "x": 165 - 128, "y": "surface", "z": 160 - 128},
         {"type": "structure", "id": "minecraft:village_plains", "x": 60 - 128, "z": 140 - 128},
         {"type": "structure", "id": "minecraft:pillager_outpost", "x": 180 - 128, "z": 195 - 128},
-    ]
+    ]}
 
 
 def build(path, tall):
     heights, water, lava, biomes = terrain()
     config = {
+        "$schema": SCHEMAS + "map.schema.json",
         "format": 1,
         "name": "Example Island" + (" (tall)" if tall else ""),
         "outside": {"mode": "flat", "ground_level": 40, "water_level": 62, "biome": "minecraft:deep_ocean"},
         "sea_level": 62,
         "spawn": {"x": 0, "z": 30},
         "vanilla_structures": {"disabled": ["minecraft:mineshafts", "minecraft:ocean_ruins"]},
+        # The map has its own lava pool: no random lava lakes.
+        "decoration": {"features": {"disabled": ["minecraft:lake_lava_surface", "minecraft:lake_lava_underground"]}},
     }
     if tall:
         # 16-bit maps: values 0..65535 map linearly onto Y 0..700; the mountain is 4.5x taller.

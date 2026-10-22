@@ -27,7 +27,7 @@ class TerrainSamplerTest {
 
     private static TerrainSampler sampler(String json, GrayRaster height, GrayRaster water, GrayRaster lava) {
         MapConfig config = config(json);
-        return new TerrainSampler(config, height, HeightMapping.resolve(config.height(), height.bitDepth()), water, lava, null);
+        return new TerrainSampler(config, height, HeightMapping.resolve(config.height(), height.bitDepth()), water, lava, null, BiomeMapping.EMPTY);
     }
 
     @Test
@@ -141,6 +141,45 @@ class TerrainSamplerTest {
         ValidationReport explicit = new ValidationReport();
         assertEquals(new DimensionLayout(-128, 512), DimensionLayout.compute(new MapConfig.Dimension(-128, 512), 0, 255, explicit));
         assertFalse(explicit.hasErrors());
+    }
+
+    @Test
+    void featureFilter() {
+        assertEquals(MapConfig.Features.ALL, config("{}").decoration().features());
+        assertEquals(MapConfig.Features.NONE, config("{\"decoration\": {\"features\": false}}").decoration().features());
+
+        MapConfig.Features features = config("""
+                {"decoration": {"features": {"disabled": ["lake_lava_surface"], "disabled_steps": ["fluid_springs"]}}}
+                """).decoration().features();
+        assertFalse(features.allows("minecraft:lake_lava_surface", "lakes"));
+        assertTrue(features.allows("minecraft:lake_lava_underground", "lakes"));
+        assertFalse(features.allows("minecraft:spring_water", "fluid_springs"));
+        assertTrue(features.allows("minecraft:trees_plains", "vegetal_decoration"));
+        assertFalse(features.isUnfiltered());
+
+        MapConfig.Features only = config("{\"decoration\": {\"features\": {\"only\": [\"minecraft:ore_iron_upper\"]}}}").decoration().features();
+        assertTrue(only.allows("minecraft:ore_iron_upper", "underground_ores"));
+        assertFalse(only.allows("minecraft:ore_gold", "underground_ores"));
+
+        ValidationReport report = new ValidationReport();
+        MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"features\": {\"disabled_steps\": [\"lake\"]}}}").getAsJsonObject(), report);
+        assertTrue(report.hasErrors());
+    }
+
+    @Test
+    void outsideBorder() {
+        assertTrue(config("{}").outside().border());
+        assertTrue(config("{\"outside\": {\"mode\": \"void\"}}").outside().border());
+        assertFalse(config("{\"outside\": {\"border\": false}}").outside().border());
+    }
+
+    @Test
+    void biomeTransitionRange() {
+        assertEquals(MapConfig.DEFAULT_BIOME_TRANSITION, config("{\"$schema\": \"x\"}").biomeTransition());
+        assertEquals(0, config("{\"biome_transition\": 0}").biomeTransition());
+        ValidationReport report = new ValidationReport();
+        MapConfig.parse(JsonParser.parseString("{\"biome_transition\": 100}").getAsJsonObject(), report);
+        assertTrue(report.hasErrors());
     }
 
     @Test

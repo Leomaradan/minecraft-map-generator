@@ -99,12 +99,7 @@ public final class ClientMaps {
      */
     public static void validateAgainst(MapPack pack, WorldCreationContext context, ValidationReport report) {
         var biomes = context.worldgenLoadContext().lookupOrThrow(Registries.BIOME);
-        List<String> biomeIds = new ArrayList<>();
-        for (BiomeMapping.Entry entry : pack.biomeMapping().entries()) {
-            biomeIds.add(entry.biome());
-        }
-        biomeIds.add(pack.config().outside().biome());
-        for (String id : biomeIds) {
+        for (String id : pack.biomeIds()) {
             Identifier key = Identifier.parse(id);
             if (biomes.get(ResourceKey.create(Registries.BIOME, key)).isEmpty() && !definedByDatapack(pack, "worldgen/biome", key)) {
                 report.error("biome " + id + " does not exist (not in the game, a mod, or the ZIP datapack)");
@@ -121,10 +116,10 @@ public final class ClientMaps {
         }
         List<String> blocks = new ArrayList<>();
         blocks.add(pack.config().blocks().defaultBlock());
-        for (BiomeMapping.Entry entry : pack.biomeMapping().entries()) {
-            blocks.add(entry.top());
-            blocks.add(entry.filler());
-            blocks.add(entry.underwater());
+        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
+            blocks.add(slot.top());
+            blocks.add(slot.filler());
+            blocks.add(slot.underwater());
         }
         for (String block : blocks) {
             if (block != null && BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {

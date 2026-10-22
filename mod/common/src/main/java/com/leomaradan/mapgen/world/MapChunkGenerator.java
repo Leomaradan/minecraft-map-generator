@@ -41,11 +41,13 @@ import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import net.minecraft.world.level.levelgen.RandomState;
@@ -55,6 +57,7 @@ import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
 import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureSet;
@@ -65,9 +68,12 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /**
  * Builds the terrain from the map pack: the heightmap gives the ground, the water and lava maps
@@ -92,12 +98,12 @@ public final class MapChunkGenerator extends ChunkGenerator {
                           boolean bedrock, MapStructures structures) {
     }
 
-    /** Surface blocks of one biome mapping entry. */
+    /** Surface blocks of one biome slot. */
     record Surface(BlockState top, BlockState filler, BlockState underwater, int fillerDepth) {
     }
 
     public MapChunkGenerator(MapBiomeSource biomeSource, MapSettings settings) {
-        super(biomeSource, biome -> settings.features() ? biome.value().getGenerationSettings() : BiomeGenerationSettings.EMPTY);
+        super(biomeSource, generationSettings(settings.featureFilter()));
         this.mapBiomes = biomeSource;
         this.settings = settings;
     }
@@ -105,6 +111,38 @@ public final class MapChunkGenerator extends ChunkGenerator {
     @Override
     protected MapCodec<? extends ChunkGenerator> codec() {
         return CODEC;
+    }
+
+    /** Biome features kept by the filter of map.json ({@code decoration.features}). */
+    private static Function<Holder<Biome>, BiomeGenerationSettings> generationSettings(MapConfig.Features filter) {
+        if (!filter.enabled()) {
+            return biome -> BiomeGenerationSettings.EMPTY;
+        }
+        if (filter.isUnfiltered()) {
+            return biome -> biome.value().getGenerationSettings();
+        }
+        // Called for every biome of every chunk and by each feature's biome check: build once per biome.
+        Map<Holder<Biome>, BiomeGenerationSettings> cache = new ConcurrentHashMap<>();
+        return biome -> cache.computeIfAbsent(biome, b -> filtered(b.value().getGenerationSettings(), filter));
+    }
+
+    static BiomeGenerationSettings filtered(BiomeGenerationSettings settings, MapConfig.Features filter) {
+        BiomeGenerationSettings.PlainBuilder builder = new BiomeGenerationSettings.PlainBuilder();
+        for (Holder<WorldCarver> carver : settings.getCarvers()) {
+            builder.addCarver(carver);
+        }
+        GenerationStep.Decoration[] steps = GenerationStep.Decoration.values();
+        List<HolderSet<PlacedFeature>> features = settings.features();
+        for (int step = 0; step < features.size(); step++) {
+            String stepName = step < steps.length ? steps[step].getSerializedName() : "";
+            for (Holder<PlacedFeature> feature : features.get(step)) {
+                String id = feature.unwrapKey().map(key -> key.identifier().toString()).orElse("");
+                if (filter.allows(id, stepName)) {
+                    builder.addFeature(step, feature);
+                }
+            }
+        }
+        return builder.build();
     }
 
     public MapSettings settings() {
@@ -139,10 +177,10 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     private Loaded load(MapPack pack) {
-        List<BiomeMapping.Entry> entries = pack.biomeMapping().entries();
-        Surface[] surfaces = new Surface[entries.size()];
-        for (int i = 0; i < entries.size(); i++) {
-            surfaces[i] = surfaceFor(this.mapBiomes.biomeForIndex(i), entries.get(i));
+        List<BiomeMapping.Variant> slots = pack.biomeMapping().slots();
+        Surface[] surfaces = new Surface[slots.size()];
+        for (int i = 0; i < slots.size(); i++) {
+            surfaces[i] = surfaceFor(this.mapBiomes.biomeForIndex(i), slots.get(i));
         }
         Surface outside = surfaceFor(this.mapBiomes.outsideBiome(), null);
         BlockState defaultBlock = block(pack.config().blocks().defaultBlock(), Blocks.STONE.defaultBlockState());
@@ -150,7 +188,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     /** Surface blocks for a biome: explicit values from biomes.json, otherwise defaults from the biome tags. */
-    static Surface surfaceFor(Holder<Biome> biome, BiomeMapping.@Nullable Entry entry) {
+    static Surface surfaceFor(Holder<Biome> biome, BiomeMapping.@Nullable Variant entry) {
         BlockState top = Blocks.GRASS_BLOCK.defaultBlockState();
         BlockState filler = Blocks.DIRT.defaultBlockState();
         BlockState underwater = Blocks.DIRT.defaultBlockState();
@@ -245,6 +283,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             out.waterY = TerrainSampler.NONE;
             out.lavaY = TerrainSampler.NONE;
             out.biome = -1;
+            out.undergroundBiome = -1;
             return out;
         }
         return l.sampler.sample(x, z, out);
@@ -549,13 +588,39 @@ public final class MapChunkGenerator extends ChunkGenerator {
             return null;
         }
         MapConfig.Spawn spawn = l.pack.config().spawn();
-        int y;
-        if (spawn.y() != null) {
-            y = spawn.y();
-        } else {
-            y = this.getBaseHeight(spawn.x(), spawn.z(), Heightmap.Types.MOTION_BLOCKING, heightAccessor, null);
+        return this.spawnAt(spawn.x(), spawn.y(), spawn.z(), heightAccessor);
+    }
+
+    /**
+     * Puts the world border around the map ({@code outside.border}). The border is a square: it
+     * fits the longest side, centered on the map.
+     *
+     * @return false when the border is disabled or no map is selected
+     */
+    public boolean configureWorldBorder(WorldBorder border) {
+        Loaded l = this.loaded();
+        if (l == null || !l.pack.config().outside().border()) {
+            return false;
         }
-        return new BlockPos(spawn.x(), Math.clamp(y, heightAccessor.getMinY() + 1, heightAccessor.getMaxY()), spawn.z());
+        TerrainSampler s = l.sampler;
+        border.setCenter((s.originX() + s.endX()) / 2.0, (s.originZ() + s.endZ()) / 2.0);
+        border.setSize(Math.max(s.endX() - s.originX(), s.endZ() - s.originZ()));
+        return true;
+    }
+
+    /** Surface at the center of the map, or null when no map is selected. */
+    public @Nullable BlockPos mapCenterSpawn(LevelHeightAccessor heightAccessor) {
+        Loaded l = this.loaded();
+        if (l == null) {
+            return null;
+        }
+        TerrainSampler s = l.sampler;
+        return this.spawnAt((s.originX() + s.endX()) / 2, null, (s.originZ() + s.endZ()) / 2, heightAccessor);
+    }
+
+    private BlockPos spawnAt(int x, @Nullable Integer y, int z, LevelHeightAccessor heightAccessor) {
+        int spawnY = y != null ? y : this.getBaseHeight(x, z, Heightmap.Types.MOTION_BLOCKING, heightAccessor, null);
+        return new BlockPos(x, Math.clamp(spawnY, heightAccessor.getMinY() + 1, heightAccessor.getMaxY()), z);
     }
 
     /** Surface Y (first free block above the ground) used to place templates on the surface. */
