@@ -70,10 +70,39 @@ public record MapConfig(
     public record Spawn(int x, int z, Integer y) {
     }
 
-    public record Blocks(String defaultBlock, boolean bedrock) {
+    public record Blocks(BlockPalette defaultBlock, boolean bedrock) {
     }
 
-    public record Decoration(Features features, boolean carvers) {
+    public record Decoration(Features features, Carvers carvers) {
+    }
+
+    /** Which biome carvers run: {@code cave} (caves, nether caves) and {@code canyon} (ravines). */
+    public record Carvers(boolean cave, boolean canyon) {
+        public static final Carvers ALL = new Carvers(true, true);
+        public static final Carvers NONE = new Carvers(false, false);
+
+        public boolean any() {
+            return this.cave || this.canyon;
+        }
+
+        /** {@code true}, {@code false} or {@code {"cave", "canyon"}}; null when absent or invalid. */
+        static Carvers parse(JsonObject parent, String key, String path, ValidationReport report) {
+            JsonElement e = parent.get(key);
+            if (e == null || e.isJsonNull()) {
+                return null;
+            }
+            String cp = path + "." + key;
+            if (e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()) {
+                return e.getAsBoolean() ? ALL : NONE;
+            }
+            if (!e.isJsonObject()) {
+                report.error(cp + " must be true, false or {\"cave\": ..., \"canyon\": ...}");
+                return null;
+            }
+            JsonObject o = e.getAsJsonObject();
+            Json.checkKnownKeys(o, cp, report, "cave", "canyon");
+            return new Carvers(Json.bool(o, "cave", true, cp, report), Json.bool(o, "canyon", true, cp, report));
+        }
     }
 
     /**
@@ -101,6 +130,39 @@ public record MapConfig(
         /** True when no feature is filtered out individually (all or nothing). */
         public boolean isUnfiltered() {
             return this.disabled.isEmpty() && this.disabledSteps.isEmpty() && this.only == null;
+        }
+
+        /** {@code true}, {@code false}, or {@code {"enabled", "disabled", "disabled_steps", "only"}}; null when absent. */
+        static Features parse(JsonObject parent, String key, String path, ValidationReport report) {
+            JsonElement e = parent.get(key);
+            if (e == null || e.isJsonNull()) {
+                return null;
+            }
+            if (e.isJsonPrimitive()) {
+                return Json.bool(parent, key, true, path, report) ? ALL : NONE;
+            }
+            JsonObject json = Json.object(parent, key, path, report);
+            if (json == null) {
+                return null;
+            }
+            String fp = path + "." + key;
+            Json.checkKnownKeys(json, fp, report, "enabled", "disabled", "disabled_steps", "only");
+            List<String> disabled = Json.idList(json, "disabled", fp, report);
+            List<String> steps = new ArrayList<>();
+            JsonArray stepsJson = Json.array(json, "disabled_steps", fp, report);
+            if (stepsJson != null) {
+                for (int i = 0; i < stepsJson.size(); i++) {
+                    JsonElement step = stepsJson.get(i);
+                    String name = step.isJsonPrimitive() && step.getAsJsonPrimitive().isString() ? step.getAsString().toLowerCase(Locale.ROOT) : null;
+                    if (name == null || !STEPS.contains(name)) {
+                        report.error(fp + ".disabled_steps[" + i + "] must be one of " + String.join(", ", STEPS));
+                    } else {
+                        steps.add(name);
+                    }
+                }
+            }
+            return new Features(Json.bool(json, "enabled", true, fp, report), disabled == null ? List.of() : disabled, List.copyOf(steps),
+                    Json.idList(json, "only", fp, report));
         }
     }
 
@@ -207,19 +269,22 @@ public record MapConfig(
         Spawn spawn = parseSpawn(Json.object(root, "spawn", p, report), report);
 
         JsonObject blocksJson = Json.object(root, "blocks", p, report);
-        Blocks blocks = new Blocks("minecraft:stone", true);
+        Blocks blocks = new Blocks(BlockPalette.of("minecraft:stone"), true);
         if (blocksJson != null) {
             String bp = p + ".blocks";
             Json.checkKnownKeys(blocksJson, bp, report, "default", "bedrock");
-            blocks = new Blocks(Json.id(blocksJson, "default", "minecraft:stone", bp, report), Json.bool(blocksJson, "bedrock", true, bp, report));
+            BlockPalette defaultBlock = BlockPalette.parse(blocksJson, "default", bp, report);
+            blocks = new Blocks(defaultBlock != null ? defaultBlock : BlockPalette.of("minecraft:stone"), Json.bool(blocksJson, "bedrock", true, bp, report));
         }
 
         JsonObject decorationJson = Json.object(root, "decoration", p, report);
-        Decoration decoration = new Decoration(Features.ALL, true);
+        Decoration decoration = new Decoration(Features.ALL, Carvers.ALL);
         if (decorationJson != null) {
             String dp = p + ".decoration";
             Json.checkKnownKeys(decorationJson, dp, report, "features", "carvers");
-            decoration = new Decoration(parseFeatures(decorationJson, dp, report), Json.bool(decorationJson, "carvers", true, dp, report));
+            Features features = Features.parse(decorationJson, "features", dp, report);
+            Carvers carvers = Carvers.parse(decorationJson, "carvers", dp, report);
+            decoration = new Decoration(features != null ? features : Features.ALL, carvers != null ? carvers : Carvers.ALL);
         }
 
         Snow snow = Snow.parse(root, "snow", p, report);
@@ -240,35 +305,6 @@ public record MapConfig(
 
         return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, biomeTransition, outside, spawn, blocks, decoration,
                 snow != null ? snow : Snow.ALL, vanilla);
-    }
-
-    /** {@code "features": true}, {@code false}, or {@code {"enabled", "disabled", "disabled_steps", "only"}}. */
-    private static Features parseFeatures(JsonObject decoration, String dp, ValidationReport report) {
-        if (!decoration.has("features") || decoration.get("features").isJsonPrimitive()) {
-            return Json.bool(decoration, "features", true, dp, report) ? Features.ALL : Features.NONE;
-        }
-        JsonObject json = Json.object(decoration, "features", dp, report);
-        if (json == null) {
-            return Features.ALL;
-        }
-        String fp = dp + ".features";
-        Json.checkKnownKeys(json, fp, report, "enabled", "disabled", "disabled_steps", "only");
-        List<String> disabled = Json.idList(json, "disabled", fp, report);
-        List<String> steps = new ArrayList<>();
-        JsonArray stepsJson = Json.array(json, "disabled_steps", fp, report);
-        if (stepsJson != null) {
-            for (int i = 0; i < stepsJson.size(); i++) {
-                JsonElement e = stepsJson.get(i);
-                String step = e.isJsonPrimitive() && e.getAsJsonPrimitive().isString() ? e.getAsString().toLowerCase(Locale.ROOT) : null;
-                if (step == null || !Features.STEPS.contains(step)) {
-                    report.error(fp + ".disabled_steps[" + i + "] must be one of " + String.join(", ", Features.STEPS));
-                } else {
-                    steps.add(step);
-                }
-            }
-        }
-        return new Features(Json.bool(json, "enabled", true, fp, report), disabled == null ? List.of() : disabled, List.copyOf(steps),
-                Json.idList(json, "only", fp, report));
     }
 
     private static Files parseFiles(JsonObject json, ValidationReport report) {

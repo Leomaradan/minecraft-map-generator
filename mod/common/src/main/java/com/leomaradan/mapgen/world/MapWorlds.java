@@ -66,15 +66,8 @@ public final class MapWorlds {
 
     /** Extra checks needing registries: blocks and structures named by the pack. */
     public static void validateRegistries(MapPack pack, HolderGetter<Structure> structures, ValidationReport report) {
-        List<String> blocks = new ArrayList<>();
-        blocks.add(pack.config().blocks().defaultBlock());
-        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
-            blocks.add(slot.top());
-            blocks.add(slot.filler());
-            blocks.add(slot.underwater());
-        }
-        for (String block : blocks) {
-            if (block != null && BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
+        for (String block : pack.blockIds()) {
+            if (BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
                 report.error("block " + block + " does not exist");
             }
         }

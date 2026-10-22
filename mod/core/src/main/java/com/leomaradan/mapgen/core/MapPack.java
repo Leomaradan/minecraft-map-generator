@@ -56,6 +56,15 @@ public record MapPack(
         return List.copyOf(ids);
     }
 
+    /** All block ids named by the pack ({@code blocks.default} and the surface layers of biomes.json), without duplicates. */
+    public List<String> blockIds() {
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>(this.config.blocks().defaultBlock().ids());
+        for (BiomeMapping.Variant v : this.biomeMapping.slots()) {
+            ids.addAll(v.blockIds());
+        }
+        return List.copyOf(ids);
+    }
+
     /** One-line summary for the UI and logs. */
     public String summary() {
         return this.width() + "x" + this.height() + " px, " + this.heightmap.bitDepth() + "-bit, Y " + this.layout.minY() + ".."

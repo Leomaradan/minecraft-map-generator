@@ -113,6 +113,17 @@ a biome:
     "snow": { "min_y": 400 },
     "biome_mountain": { "biome": "minecraft:grove", "snow": true },
     "mountain_y": 600
+  },
+  "#8A8F5A": {
+    "biome": "minecraft:old_growth_pine_taiga",
+    "top": {
+      "blocks": [{ "block": "minecraft:podzol", "weight": 3 }, "minecraft:coarse_dirt"],
+      "method": "perlin",
+      "scale": 12
+    },
+    "filler": ["minecraft:dirt", "minecraft:dirt", "minecraft:gravel"],
+    "features": { "disabled": ["minecraft:forest_rock"] },
+    "carvers": { "cave": true, "canyon": false }
   }
 }
 ```
@@ -124,7 +135,11 @@ a biome:
   grass and dirt; sand for beaches, deserts and rivers; gravel for oceans; red sand and
   terracotta for badlands; mycelium for mushroom fields; snow for snowy peaks; netherrack/end
   stone for Nether/End biomes. `underwater` is used for the top blocks under water or lava.
+  `top`, `filler` and `underwater` take a block id or a mix of blocks (see
+  [Block lists](#block-lists)).
 * `snow` is optional: where snow and ice may form in this biome (see [Snow](#snow)).
+* `features` and `carvers` are optional: they replace `decoration.features` and
+  `decoration.carvers` of `map.json` in this biome (see [Decoration per biome](#decoration-per-biome)).
 * Colors missing from the mapping use the nearest mapped color (a warning lists them).
 
 Without a biome map, the whole map uses the outside biome.
@@ -132,7 +147,8 @@ Without a biome map, the whole map uses the outside biome.
 ### Substitute biomes
 
 An entry can replace its biome in some places. Each substitute is optional. Its value is a biome
-id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater` and `snow`.
+id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater`, `snow`,
+`features` and `carvers`.
 A substitute given as a plain id uses the default surface blocks of that biome, not the
 entry's blocks.
 
@@ -178,6 +194,54 @@ generated (the `freeze_top_layer` feature) and to snowfall during the game. Snow
 surface (`top`, snowy peaks) and snowy biome features (ice spikes, powder snow) are not affected.
 Where snow can't settle, snowflakes still fall during a storm, as the client doesn't know the
 setting.
+
+### Decoration per biome
+
+`features` and `carvers` take the same values as `decoration.features` and
+`decoration.carvers` in `map.json`. On an entry or a substitute object, they replace the values
+of `map.json` there (they are not combined):
+
+```json
+{
+  "#5DBB4F": { "biome": "minecraft:plains", "features": { "disabled_steps": ["lakes"] } },
+  "#A0A0A0": { "biome": "minecraft:stony_peaks", "carvers": false, "features": false }
+}
+```
+
+* Features are checked where they are placed: an ore placed underground uses the `features` of
+  the slot there (`biome_underground` uses `map.json`'s, as it can't have its own). Features
+  that don't check their biome (rare) can't be filtered per biome.
+* Carvers are picked per chunk, from the biome at the north-west corner of the chunk where the
+  cave starts, like in vanilla. A cave can cross into a neighbor biome that has no carvers.
+
+## Block lists
+
+Every block of `biomes.json` (`top`, `filler`, `underwater`) and `blocks.default` in `map.json`
+can be a single block id, or a mix of blocks:
+
+```json
+"top": "minecraft:grass_block"
+"top": ["minecraft:grass_block", "minecraft:coarse_dirt"]
+"top": [{ "block": "minecraft:grass_block", "weight": 3 }, "minecraft:coarse_dirt"]
+"top": {
+  "blocks": [{ "block": "minecraft:grass_block", "weight": 3 }, "minecraft:coarse_dirt"],
+  "method": "perlin",
+  "scale": 12
+}
+```
+
+* A list picks one of its blocks for each position. `weight` is the relative probability
+  (default `1`, a plain id counts as `1`): above, grass covers about 3/4 of the surface.
+* The object form chooses how blocks are picked with `method`:
+
+  | `method` | Result |
+  |---|---|
+  | `random` (default) | each block is picked independently: a speckled mix |
+  | `perlin` | smooth 3D noise: the blocks form patches about `scale` blocks wide (default `16`) |
+
+* The same position always gives the same block, in every world made from the map. Each layer
+  has its own pattern, so a `top` and a `filler` with the same blocks don't line up.
+* A block that doesn't exist is reported when the map is loaded, like a single block id.
 
 ## `map.json`
 
@@ -243,15 +307,15 @@ Every field is optional. Unknown keys produce a warning.
 | `outside.biome` | `minecraft:plains` | Biome around the map (and everywhere without a biome map). |
 | `outside.border` | `true` | Puts a world border around the map when the world is created, so players can't leave it. The border is a square: it fits the longest side of the map, centered on it, so a non-square map has some outside terrain on its short sides. Without a `spawn`, a spawn that vanilla picked outside the border moves to the center of the map. Change it later with `/worldborder`. |
 | `spawn` | vanilla | World spawn. Without `y`, the spawn is on the surface. |
-| `blocks.default` | `minecraft:stone` | Block under the surface layers. |
+| `blocks.default` | `minecraft:stone` | Blocks under the surface layers: a block id or a [block list](#block-lists). |
 | `blocks.bedrock` | `true` | Bedrock at the bottom of the world. |
 | `snow` | `true` | Where snow layers and ice may form: `true`, `false` or `{min_y, max_y}`. See [Snow](#snow). |
-| `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). |
+| `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). An entry of `biomes.json` can override it. |
 | `decoration.features.enabled` | `true` | `false` turns every feature off. |
 | `decoration.features.disabled` | `[]` | Placed features to skip, e.g. `minecraft:lake_lava_surface`. |
 | `decoration.features.disabled_steps` | `[]` | Generation steps to skip entirely (see below). |
 | `decoration.features.only` | all | If set, only these placed features are generated. |
-| `decoration.carvers` | `true` | Caves and ravines from the biomes. They don't break into the map's water and lava. |
+| `decoration.carvers` | `true` | Caves and ravines from the biomes: `true`, `false`, or `{"cave": bool, "canyon": bool}` (each `true` by default). They don't break into the map's water and lava. An entry of `biomes.json` can override it. |
 | `vanilla_structures.enabled` | `true` | Random structures (villages, temples...). `"vanilla_structures": false` is a shorthand. |
 | `vanilla_structures.disabled` | `[]` | Structures or structure sets to turn off, e.g. `minecraft:village_plains` or `minecraft:villages`. |
 | `vanilla_structures.only` | all | If set, only these structures or structure sets are generated. |

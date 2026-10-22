@@ -156,7 +156,7 @@ class MapPackReaderTest {
         assertEquals(0, pack.sampler().biomeIndex(-2, 0));
         assertEquals(1, pack.sampler().biomeIndex(1, 0));
         assertEquals(-1, pack.sampler().biomeIndex(100, 0));
-        assertEquals("minecraft:sand", pack.biomeMapping().entries().get(1).top());
+        assertEquals(java.util.List.of("minecraft:sand"), pack.biomeMapping().slots().get(1).top().ids());
     }
 
     @Test
@@ -273,7 +273,7 @@ class MapPackReaderTest {
         BiomeMapping mapping = pack.biomeMapping();
         assertEquals(java.util.List.of("minecraft:forest", "minecraft:plains", "minecraft:river", "mymap:edge", "minecraft:lush_caves",
                 "minecraft:stony_peaks"), mapping.slots().stream().map(BiomeMapping.Variant::biome).toList());
-        assertEquals("minecraft:gravel", mapping.slots().get(3).top());
+        assertEquals(java.util.List.of("minecraft:gravel"), mapping.slots().get(3).top().ids());
         assertEquals("#00FF00.biome_border", mapping.slots().get(3).origin());
 
         TerrainSampler s = pack.sampler();
@@ -391,6 +391,45 @@ class MapPackReaderTest {
         assertEquals(0, s.biomeIndex(60, 0), "far from the water and the plains");
         assertEquals(3, s.biomeIndex(90, 0), "200 pixels from the plains: border");
         assertEquals(1, s.biomeIndex(115, 0));
+    }
+
+    @Test
+    void decorationAndBlocksPerBiome() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"blocks\": {\"default\": [\"stone\", \"andesite\"]}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", """
+                        {"#000000": {"biome": "forest", "top": {"blocks": ["grass_block", {"block": "podzol", "weight": 2}], "method": "perlin"},
+                                     "filler": "dirt", "features": {"disabled": ["trees_plains"]}, "carvers": {"canyon": false},
+                                     "biome_mountain": {"biome": "grove", "features": false, "carvers": false, "underwater": ["stone", "dirt"]}}}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        MapPack pack = result.pack();
+        BiomeMapping mapping = pack.biomeMapping();
+        BiomeMapping.Variant forest = mapping.slots().get(0);
+        assertEquals(BlockPalette.Method.PERLIN, forest.top().method());
+        assertFalse(forest.features().allows("minecraft:trees_plains", "vegetal_decoration"));
+        assertEquals(new MapConfig.Carvers(true, false), forest.carvers());
+        BiomeMapping.Variant grove = mapping.slots().get(1);
+        assertEquals(MapConfig.Features.NONE, grove.features());
+        assertEquals(MapConfig.Carvers.NONE, grove.carvers());
+        assertTrue(mapping.hasFeatureOverrides());
+        assertTrue(mapping.hasCarverOverrides());
+        assertEquals(java.util.List.of("minecraft:stone", "minecraft:andesite", "minecraft:grass_block", "minecraft:podzol", "minecraft:dirt"),
+                pack.blockIds());
+    }
+
+    @Test
+    void noDecorationOverridesByDefault() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("biomes.png", TestPng.rgb(4, 4, (x, y, c) -> 0))
+                .put("biomes.json", "{\"#000000\": \"forest\"}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        assertFalse(result.pack().biomeMapping().hasFeatureOverrides());
+        assertFalse(result.pack().biomeMapping().hasCarverOverrides());
     }
 
     @Test

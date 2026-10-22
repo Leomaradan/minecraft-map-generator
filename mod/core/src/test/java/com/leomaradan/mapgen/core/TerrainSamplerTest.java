@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -174,6 +175,33 @@ class TerrainSamplerTest {
             MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"features\": {\"disabled_steps\": " + steps + "}}}").getAsJsonObject(), report);
             assertTrue(report.hasErrors(), steps);
         }
+    }
+
+    @Test
+    void carvers() {
+        assertEquals(MapConfig.Carvers.ALL, config("{}").decoration().carvers());
+        assertEquals(MapConfig.Carvers.NONE, config("{\"decoration\": {\"carvers\": false}}").decoration().carvers());
+        MapConfig.Carvers caves = config("{\"decoration\": {\"carvers\": {\"canyon\": false}}}").decoration().carvers();
+        assertEquals(new MapConfig.Carvers(true, false), caves);
+        assertTrue(caves.any());
+        assertFalse(MapConfig.Carvers.NONE.any());
+
+        for (String carvers : new String[]{"3", "{\"cave\": \"yes\"}"}) {
+            ValidationReport report = new ValidationReport();
+            MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"carvers\": " + carvers + "}}").getAsJsonObject(), report);
+            assertTrue(report.hasErrors(), carvers);
+        }
+    }
+
+    @Test
+    void defaultBlockPalette() {
+        assertEquals(List.of("minecraft:stone"), config("{}").blocks().defaultBlock().ids());
+        assertEquals(List.of("minecraft:stone", "minecraft:deepslate"),
+                config("{\"blocks\": {\"default\": [\"stone\", \"deepslate\"]}}").blocks().defaultBlock().ids());
+        ValidationReport report = new ValidationReport();
+        MapConfig invalid = MapConfig.parse(JsonParser.parseString("{\"blocks\": {\"default\": []}}").getAsJsonObject(), report);
+        assertTrue(report.hasErrors());
+        assertEquals(List.of("minecraft:stone"), invalid.blocks().defaultBlock().ids());
     }
 
     @Test

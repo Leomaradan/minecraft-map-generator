@@ -2,6 +2,7 @@ package com.leomaradan.mapgen.world;
 
 import com.leomaradan.mapgen.MapGen;
 import com.leomaradan.mapgen.core.BiomeMapping;
+import com.leomaradan.mapgen.core.BlockPalette;
 import com.leomaradan.mapgen.core.MapConfig;
 import com.leomaradan.mapgen.core.MapPack;
 import com.leomaradan.mapgen.core.StructureEntry;
@@ -55,6 +56,7 @@ import net.minecraft.world.level.levelgen.RandomSupport;
 import net.minecraft.world.level.levelgen.WorldGenerationContext;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.levelgen.carver.CanyonWorldCarver;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
 import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
@@ -66,13 +68,17 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 
 /**
@@ -93,17 +99,38 @@ public final class MapChunkGenerator extends ChunkGenerator {
     private final MapSettings settings;
     private volatile Loaded loaded;
 
-    /** Pack data resolved on first use (the pack is only available once the server runs). */
-    private record Loaded(MapPack pack, TerrainSampler sampler, Surface[] surfaces, Surface outsideSurface, BlockState defaultBlock,
-                          boolean bedrock, MapStructures structures) {
+    /**
+     * Pack data resolved on first use (the pack is only available once the server runs). The
+     * per-slot arrays have one more element at the end for the outside biome.
+     *
+     * @param carvers  carvers of each slot
+     * @param features placed features allowed in each slot, null when biomes.json filters no feature
+     */
+    private record Loaded(MapPack pack, TerrainSampler sampler, Surface[] surfaces, Surface outsideSurface, Palette defaultBlock,
+                          boolean bedrock, MapStructures structures, MapConfig.Carvers[] carvers, @Nullable List<Set<PlacedFeature>> features) {
+        /** Index in the per-slot arrays: the slot, or the last element for the outside biome. */
+        int index(int slot) {
+            return slot >= 0 && slot < this.surfaces.length ? slot : this.surfaces.length;
+        }
     }
 
     /** Surface blocks of one biome slot. */
-    record Surface(BlockState top, BlockState filler, BlockState underwater, int fillerDepth) {
+    record Surface(Palette top, Palette filler, Palette underwater, int fillerDepth) {
+    }
+
+    /** Blocks of a layer, picked by position. */
+    record Palette(@Nullable BlockPalette palette, List<BlockState> states) {
+        static Palette of(BlockState state) {
+            return new Palette(null, List.of(state));
+        }
+
+        BlockState at(int x, int y, int z) {
+            return this.palette == null || this.states.size() == 1 ? this.states.getFirst() : this.states.get(this.palette.pick(x, y, z));
+        }
     }
 
     public MapChunkGenerator(MapBiomeSource biomeSource, MapSettings settings) {
-        super(biomeSource, generationSettings(settings.featureFilter()));
+        super(biomeSource, generationSettings(settings));
         this.mapBiomes = biomeSource;
         this.settings = settings;
     }
@@ -113,20 +140,34 @@ public final class MapChunkGenerator extends ChunkGenerator {
         return CODEC;
     }
 
-    /** Biome features kept by the filter of map.json ({@code decoration.features}). */
-    private static Function<Holder<Biome>, BiomeGenerationSettings> generationSettings(MapConfig.Features filter) {
-        if (!filter.enabled()) {
-            return biome -> BiomeGenerationSettings.EMPTY;
-        }
-        if (filter.isUnfiltered()) {
-            return biome -> biome.value().getGenerationSettings();
+    /**
+     * Biome features kept by the filters of map.json ({@code decoration.features}) and biomes.json.
+     * With filters in biomes.json, a biome keeps the features any of its filters allows, and
+     * {@link #allowsFeature} checks each position against the filter of its slot.
+     */
+    private static Function<Holder<Biome>, BiomeGenerationSettings> generationSettings(MapSettings settings) {
+        MapConfig.Features filter = settings.featureFilter();
+        if (settings.biomeFeatures().isEmpty()) {
+            if (!filter.enabled()) {
+                return biome -> BiomeGenerationSettings.EMPTY;
+            }
+            if (filter.isUnfiltered()) {
+                return biome -> biome.value().getGenerationSettings();
+            }
         }
         // Called for every biome of every chunk and by each feature's biome check: build once per biome.
         Map<Holder<Biome>, BiomeGenerationSettings> cache = new ConcurrentHashMap<>();
-        return biome -> cache.computeIfAbsent(biome, b -> filtered(b.value().getGenerationSettings(), filter));
+        return biome -> cache.computeIfAbsent(biome, b -> {
+            String id = b.unwrapKey().map(key -> key.identifier().toString()).orElse("");
+            List<MapConfig.Features> filters = new ArrayList<>();
+            filters.add(filter);
+            settings.biomeFeatures().stream().filter(f -> f.biome().equals(id)).forEach(f -> filters.add(f.filter()));
+            return filtered(b.value().getGenerationSettings(), (feature, step) -> filters.stream().anyMatch(f -> f.allows(feature, step)));
+        });
     }
 
-    static BiomeGenerationSettings filtered(BiomeGenerationSettings settings, MapConfig.Features filter) {
+    /** @param allows tests a feature id and its generation step */
+    static BiomeGenerationSettings filtered(BiomeGenerationSettings settings, BiPredicate<String, String> allows) {
         BiomeGenerationSettings.PlainBuilder builder = new BiomeGenerationSettings.PlainBuilder();
         for (Holder<WorldCarver> carver : settings.getCarvers()) {
             builder.addCarver(carver);
@@ -137,12 +178,23 @@ public final class MapChunkGenerator extends ChunkGenerator {
             String stepName = step < steps.length ? steps[step].getSerializedName() : "";
             for (Holder<PlacedFeature> feature : features.get(step)) {
                 String id = feature.unwrapKey().map(key -> key.identifier().toString()).orElse("");
-                if (filter.allows(id, stepName)) {
+                if (allows.test(id, stepName)) {
                     builder.addFeature(step, feature);
                 }
             }
         }
         return builder.build();
+    }
+
+    /** Placed features of a biome that a filter allows, compared by identity. */
+    private static Set<PlacedFeature> allowedFeatures(Holder<Biome> biome, MapConfig.Features filter) {
+        Set<PlacedFeature> allowed = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (filter.enabled()) {
+            for (HolderSet<PlacedFeature> step : filtered(biome.value().getGenerationSettings(), filter::allows).features()) {
+                step.forEach(feature -> allowed.add(feature.value()));
+            }
+        }
+        return allowed;
     }
 
     public MapSettings settings() {
@@ -179,12 +231,25 @@ public final class MapChunkGenerator extends ChunkGenerator {
     private Loaded load(MapPack pack) {
         List<BiomeMapping.Variant> slots = pack.biomeMapping().slots();
         Surface[] surfaces = new Surface[slots.size()];
+        MapConfig.Carvers[] carvers = new MapConfig.Carvers[slots.size() + 1];
+        MapConfig.Features featureFilter = this.settings.featureFilter();
+        List<Set<PlacedFeature>> features = pack.biomeMapping().hasFeatureOverrides() ? new ArrayList<>() : null;
         for (int i = 0; i < slots.size(); i++) {
-            surfaces[i] = surfaceFor(this.mapBiomes.biomeForIndex(i), slots.get(i));
+            BiomeMapping.Variant slot = slots.get(i);
+            surfaces[i] = surfaceFor(this.mapBiomes.biomeForIndex(i), slot);
+            carvers[i] = slot.carvers() != null ? slot.carvers() : this.settings.carverFilter();
+            if (features != null) {
+                features.add(allowedFeatures(this.mapBiomes.biomeForIndex(i), slot.features() != null ? slot.features() : featureFilter));
+            }
+        }
+        carvers[slots.size()] = this.settings.carverFilter();
+        if (features != null) {
+            features.add(allowedFeatures(this.mapBiomes.outsideBiome(), featureFilter));
         }
         Surface outside = surfaceFor(this.mapBiomes.outsideBiome(), null);
-        BlockState defaultBlock = block(pack.config().blocks().defaultBlock(), Blocks.STONE.defaultBlockState());
-        return new Loaded(pack, pack.sampler(), surfaces, outside, defaultBlock, pack.config().blocks().bedrock(), new MapStructures(pack));
+        Palette defaultBlock = palette(pack.config().blocks().defaultBlock(), Blocks.STONE.defaultBlockState());
+        return new Loaded(pack, pack.sampler(), surfaces, outside, defaultBlock, pack.config().blocks().bedrock(), new MapStructures(pack), carvers,
+                features);
     }
 
     /** Surface blocks for a biome: explicit values from biomes.json, otherwise defaults from the biome tags. */
@@ -216,15 +281,21 @@ public final class MapChunkGenerator extends ChunkGenerator {
             top = Blocks.SNOW_BLOCK.defaultBlockState();
             filler = Blocks.STONE.defaultBlockState();
         }
-        if (entry != null) {
-            top = block(entry.top(), top);
-            filler = block(entry.filler(), filler);
-            underwater = block(entry.underwater(), underwater);
-            if (entry.fillerDepth() != null) {
-                depth = entry.fillerDepth();
-            }
+        if (entry == null) {
+            return new Surface(Palette.of(top), Palette.of(filler), Palette.of(underwater), depth);
         }
-        return new Surface(top, filler, underwater, depth);
+        if (entry.fillerDepth() != null) {
+            depth = entry.fillerDepth();
+        }
+        return new Surface(palette(entry.top(), top), palette(entry.filler(), filler), palette(entry.underwater(), underwater), depth);
+    }
+
+    /** Resolves the blocks of a palette; {@code fallback} when absent, and in place of unknown blocks. */
+    static Palette palette(@Nullable BlockPalette palette, BlockState fallback) {
+        if (palette == null) {
+            return Palette.of(fallback);
+        }
+        return new Palette(palette, palette.ids().stream().map(id -> block(id, fallback)).toList());
     }
 
     static BlockState block(@Nullable String id, BlockState fallback) {
@@ -244,8 +315,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
     // Terrain
     // ------------------------------------------------------------------------------------------
 
-    /** Block at {@code y} for a sampled column. */
-    private BlockState stateAt(@Nullable Loaded l, TerrainSampler.Column column, int y, int minY) {
+    /** Block at {@code y} for the sampled column at {@code x, z}. */
+    private BlockState stateAt(@Nullable Loaded l, TerrainSampler.Column column, int x, int y, int z, int minY) {
         if (column.terrainY == TerrainSampler.NONE) {
             return Blocks.AIR.defaultBlockState();
         }
@@ -268,12 +339,12 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
         Surface surface = column.biome >= 0 && column.biome < l.surfaces.length ? l.surfaces[column.biome] : l.outsideSurface;
         if (y == column.terrainY) {
-            return fluidTop != TerrainSampler.NONE ? surface.underwater : surface.top;
+            return (fluidTop != TerrainSampler.NONE ? surface.underwater : surface.top).at(x, y, z);
         }
         if (y >= column.terrainY - surface.fillerDepth) {
-            return fluidTop != TerrainSampler.NONE ? surface.underwater : surface.filler;
+            return (fluidTop != TerrainSampler.NONE ? surface.underwater : surface.filler).at(x, y, z);
         }
-        return l.defaultBlock;
+        return l.defaultBlock.at(x, y, z);
     }
 
     private TerrainSampler.Column sample(@Nullable Loaded l, int x, int z, TerrainSampler.Column out) {
@@ -295,8 +366,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
                                                        Set<Holder<Biome>> possibleBiomes) {
         Loaded l = this.loaded();
         this.fillTerrain(l, chunk);
-        if (this.settings.carvers()) {
-            this.carve(chunk, randomState, carverBiomeRegion);
+        if (l != null ? Arrays.stream(l.carvers).anyMatch(MapConfig.Carvers::any) : this.settings.carverFilter().any()) {
+            this.carve(l, chunk, randomState, carverBiomeRegion);
         }
         return CompletableFuture.completedFuture(chunk);
     }
@@ -313,13 +384,15 @@ public final class MapChunkGenerator extends ChunkGenerator {
         try {
             for (int dx = 0; dx < 16; dx++) {
                 for (int dz = 0; dz < 16; dz++) {
-                    this.sample(l, pos.getBlockX(dx), pos.getBlockZ(dz), column);
+                    int x = pos.getBlockX(dx);
+                    int z = pos.getBlockZ(dz);
+                    this.sample(l, x, z, column);
                     if (column.terrainY == TerrainSampler.NONE) {
                         continue;
                     }
                     int top = Math.min(maxY, Math.max(column.terrainY, column.fluidTop()));
                     for (int y = minY; y <= top; y++) {
-                        BlockState state = this.stateAt(l, column, y, minY);
+                        BlockState state = this.stateAt(l, column, x, y, z, minY);
                         if (state.isAir()) {
                             continue;
                         }
@@ -346,7 +419,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
      * Runs the biomes' carvers (caves, ravines) the way the noise generator does, without
      * breaking into the water and lava placed by the map.
      */
-    private void carve(ChunkAccess chunk, RandomState randomState, @Nullable WorldGenRegion carverBiomeRegion) {
+    private void carve(@Nullable Loaded l, ChunkAccess chunk, RandomState randomState, @Nullable WorldGenRegion carverBiomeRegion) {
         ChunkPos pos = chunk.getPos();
         WorldGenerationContext context = new WorldGenerationContext(this, chunk.getHeightAccessorForGeneration());
         int maxY = context.getMinGenY() + context.getGenDepth() - 1 - 7;
@@ -357,12 +430,14 @@ public final class MapChunkGenerator extends ChunkGenerator {
             for (int dz = -range; dz <= range; dz++) {
                 ChunkPos sourcePos = new ChunkPos(pos.x() + dx, pos.z() + dz);
                 Holder<Biome> biome = this.mapBiomes.biomeAt(sourcePos.getMinBlockX(), sourcePos.getMinBlockZ());
+                MapConfig.Carvers rule = l != null ? l.carvers[l.index(l.sampler.biomeIndex(sourcePos.getMinBlockX(), sourcePos.getMinBlockZ()))]
+                        : this.settings.carverFilter();
                 BiomeGenerationSettings biomeSettings = biome.value().getGenerationSettings();
                 int index = 0;
                 for (Holder<WorldCarver> carverHolder : biomeSettings.getCarvers()) {
                     WorldCarver carver = carverHolder.value();
                     random.setLargeFeatureSeed(randomState.seed() + index, sourcePos.x(), sourcePos.z());
-                    if (carver.isStartChunk(random)) {
+                    if ((carver instanceof CanyonWorldCarver ? rule.canyon() : rule.cave()) && carver.isStartChunk(random)) {
                         carver.carve(context, random, pos, sourcePos, mask);
                     }
                     index++;
@@ -416,13 +491,13 @@ public final class MapChunkGenerator extends ChunkGenerator {
         int maxY = heightAccessor.getMaxY();
         int fluidTop = column.fluidTop();
         if (fluidTop != TerrainSampler.NONE) {
-            BlockState fluid = this.stateAt(l, column, Math.min(fluidTop, maxY), minY);
+            BlockState fluid = this.stateAt(l, column, x, Math.min(fluidTop, maxY), z, minY);
             if (type.isOpaque().test(fluid)) {
                 return Math.min(fluidTop, maxY) + 1;
             }
         }
         for (int y = Math.min(column.terrainY, maxY); y >= minY; y--) {
-            if (type.isOpaque().test(this.stateAt(l, column, y, minY))) {
+            if (type.isOpaque().test(this.stateAt(l, column, x, y, z, minY))) {
                 return y + 1;
             }
         }
@@ -436,7 +511,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
         int minY = heightAccessor.getMinY();
         BlockState[] states = new BlockState[heightAccessor.getHeight()];
         for (int i = 0; i < states.length; i++) {
-            states[i] = this.stateAt(l, column, minY + i, minY);
+            states[i] = this.stateAt(l, column, x, minY + i, z, minY);
         }
         return new NoiseColumn(minY, states);
     }
@@ -579,6 +654,18 @@ public final class MapChunkGenerator extends ChunkGenerator {
         if (l != null) {
             l.structures.placeTemplates(level, chunk, this);
         }
+    }
+
+    /**
+     * True if a placed feature may be placed at a position: checks the feature filter of the slot
+     * there, when biomes.json has feature filters (called by the {@code biome} placement filter).
+     */
+    public boolean allowsFeature(BlockPos pos, PlacedFeature feature) {
+        Loaded l = this.loaded();
+        if (l == null || l.features == null) {
+            return true;
+        }
+        return l.features.get(l.index(l.sampler.biomeIndex(pos.getX(), pos.getY(), pos.getZ()))).contains(feature);
     }
 
     /** True if snow and ice may form at a position ({@code snow} of map.json and biomes.json). */
