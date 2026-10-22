@@ -2,6 +2,8 @@ name: Minecraft mod
 
 on:
   push:
+    branches: 
+      - main
     paths:
       - 'mod/**'
       - '.github/workflows/mod.yml'
