@@ -581,6 +581,12 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
     }
 
+    /** True if snow and ice may form at a position ({@code snow} of map.json and biomes.json). */
+    public boolean allowsSnow(BlockPos pos) {
+        Loaded l = this.loaded();
+        return l == null || l.sampler.allowsSnow(pos.getX(), pos.getY(), pos.getZ());
+    }
+
     /** Spawn point from map.json, or null to let vanilla choose. */
     public @Nullable BlockPos configuredSpawn(LevelHeightAccessor heightAccessor) {
         Loaded l = this.loaded();

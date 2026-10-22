@@ -10,6 +10,29 @@
       "type": "string",
       "pattern": "^([a-z0-9_.-]+:)?[a-z0-9_./-]+$",
       "description": "Resource id; without a namespace, minecraft: is used."
+    },
+    "snow": {
+      "description": "Where snow layers and ice may form. Snow still needs a biome cold enough at that height: this only removes snow.",
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "true: snow wherever the biome is cold enough. false: no snow and no ice."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_y": {
+              "type": "integer",
+              "description": "Lowest Y with snow."
+            },
+            "max_y": {
+              "type": "integer",
+              "description": "Highest Y with snow."
+            }
+          }
+        }
+      ]
     }
   },
   "properties": {
@@ -287,6 +310,11 @@
           "description": "Caves and ravines from the biomes."
         }
       }
+    },
+    "snow": {
+      "$ref": "#/$defs/snow",
+      "default": true,
+      "description": "Where snow layers and ice may form, for the whole map. Minecraft's biomes get colder above sea_level + 17, so tall maps get snow everywhere: use min_y to keep it on the peaks. An entry of biomes.json can override it."
     },
     "vanilla_structures": {
       "default": true,

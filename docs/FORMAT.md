@@ -107,6 +107,12 @@ a biome:
     "mountain_y": 140,
     "biome_underground": "minecraft:lush_caves",
     "underground_depth": 12
+  },
+  "#E0E0E0": {
+    "biome": "minecraft:taiga",
+    "snow": { "min_y": 400 },
+    "biome_mountain": { "biome": "minecraft:grove", "snow": true },
+    "mountain_y": 600
   }
 }
 ```
@@ -118,6 +124,7 @@ a biome:
   grass and dirt; sand for beaches, deserts and rivers; gravel for oceans; red sand and
   terracotta for badlands; mycelium for mushroom fields; snow for snowy peaks; netherrack/end
   stone for Nether/End biomes. `underwater` is used for the top blocks under water or lava.
+* `snow` is optional: where snow and ice may form in this biome (see [Snow](#snow)).
 * Colors missing from the mapping use the nearest mapped color (a warning lists them).
 
 Without a biome map, the whole map uses the outside biome.
@@ -125,7 +132,7 @@ Without a biome map, the whole map uses the outside biome.
 ### Substitute biomes
 
 An entry can replace its biome in some places. Each substitute is optional. Its value is a biome
-id, or an object with `biome` and its own `top`, `filler`, `filler_depth` and `underwater`.
+id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater` and `snow`.
 A substitute given as a plain id uses the default surface blocks of that biome, not the
 entry's blocks.
 
@@ -152,6 +159,25 @@ keep the exact pixel borders.
 Grass, foliage and water colors are also blended by the game's "Biome Blend" video setting.
 That's why some transitions (meadow to swamp) already looked smooth while changes of surface
 block (sand to grass) did not.
+
+### Snow
+
+Minecraft's biomes get colder with height, from `sea_level + 17` up: plains turn snowy around
+Y=600, taigas around Y=160. On a tall map, most of the terrain ends up under snow, and water
+freezes. `snow` limits where snow layers and ice form, in `map.json` for the whole map and in
+`biomes.json` for one entry or substitute (which then ignores the one of `map.json`):
+
+| Value | Snow and ice |
+|---|---|
+| `true` (default) | wherever the biome is cold enough, as in vanilla |
+| `false` | never |
+| `{ "min_y": 400, "max_y": 900 }` | only from `min_y` to `max_y` (both optional), where the biome is cold enough |
+
+`snow` only removes snow: it can't make a warm biome snowy. It applies when the world is
+generated (the `freeze_top_layer` feature) and to snowfall during the game. Snow blocks from the
+surface (`top`, snowy peaks) and snowy biome features (ice spikes, powder snow) are not affected.
+Where snow can't settle, snowflakes still fall during a storm, as the client doesn't know the
+setting.
 
 ## `map.json`
 
@@ -186,6 +212,7 @@ Every field is optional. Unknown keys produce a warning.
   },
   "spawn": { "x": 0, "z": 0, "y": 80 },
   "blocks": { "default": "minecraft:stone", "bedrock": true },
+  "snow": { "min_y": 300 },
   "decoration": {
     "features": {
       "disabled": ["minecraft:lake_lava_surface", "minecraft:lake_lava_underground"],
@@ -218,6 +245,7 @@ Every field is optional. Unknown keys produce a warning.
 | `spawn` | vanilla | World spawn. Without `y`, the spawn is on the surface. |
 | `blocks.default` | `minecraft:stone` | Block under the surface layers. |
 | `blocks.bedrock` | `true` | Bedrock at the bottom of the world. |
+| `snow` | `true` | Where snow layers and ice may form: `true`, `false` or `{min_y, max_y}`. See [Snow](#snow). |
 | `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). |
 | `decoration.features.enabled` | `true` | `false` turns every feature off. |
 | `decoration.features.disabled` | `[]` | Placed features to skip, e.g. `minecraft:lake_lava_surface`. |

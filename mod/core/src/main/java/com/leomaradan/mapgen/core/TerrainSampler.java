@@ -19,6 +19,9 @@ public final class TerrainSampler {
     private final BiomeRaster biomes;
     private final BiomeMapping biomeMapping;
     private final MapConfig.Outside outside;
+    private final MapConfig.Snow snow;
+    /** False when snow is allowed everywhere: no need to sample the column. */
+    private final boolean hasSnowRules;
     private final int defaultMountainY;
     /** Largest biome border shift in blocks, 0 for exact pixel borders. */
     private final int transition;
@@ -72,6 +75,8 @@ public final class TerrainSampler {
         this.biomes = biomes;
         this.biomeMapping = biomeMapping;
         this.outside = config.outside();
+        this.snow = config.snow();
+        this.hasSnowRules = !this.snow.equals(MapConfig.Snow.ALL) || biomeMapping.slots().stream().anyMatch(v -> v.snow() != null);
         this.defaultMountainY = config.seaLevel() + BiomeMapping.DEFAULT_MOUNTAIN_ABOVE_SEA;
         this.transition = config.biomeTransition();
         // Wavelength long enough for the shift to stay smooth: thin features (rivers) stay connected.
@@ -265,6 +270,16 @@ public final class TerrainSampler {
             return -1;
         }
         return this.sample(x, z, new Column()).biomeAt(y);
+    }
+
+    /** True if snow and ice may form at a block position: {@code snow} of the surface biome entry, else of map.json. */
+    public boolean allowsSnow(int x, int y, int z) {
+        if (!this.hasSnowRules) {
+            return true;
+        }
+        int slot = this.biomeIndex(x, z);
+        MapConfig.Snow rule = slot >= 0 && slot < this.biomeMapping.slots().size() ? this.biomeMapping.slots().get(slot).snow() : null;
+        return (rule != null ? rule : this.snow).allows(y);
     }
 
     private int fluid(GrayRaster raster, int px, int pz) {
