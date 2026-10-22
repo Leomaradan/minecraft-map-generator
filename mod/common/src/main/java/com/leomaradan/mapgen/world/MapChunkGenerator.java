@@ -319,31 +319,38 @@ public final class MapChunkGenerator extends ChunkGenerator {
         if (column.terrainY == TerrainSampler.NONE) {
             return Blocks.AIR.defaultBlockState();
         }
-        int fluidTop = column.fluidTop();
         if (y > column.terrainY) {
-            if (y <= fluidTop) {
+            if (y <= column.fluidTop()) {
                 return column.isLava() ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
             }
             return Blocks.AIR.defaultBlockState();
         }
         if (l == null) {
-            if (y == minY) {
-                return Blocks.BEDROCK.defaultBlockState();
-            }
-            return y == column.terrainY ? Blocks.GRASS_BLOCK.defaultBlockState() : y > column.terrainY - 4 ? Blocks.DIRT.defaultBlockState()
-                    : Blocks.STONE.defaultBlockState();
+            return unconfiguredGround(column, y, minY);
         }
         if (y == minY && l.bedrock) {
             return Blocks.BEDROCK.defaultBlockState();
         }
         Surface surface = column.biome >= 0 && column.biome < l.surfaces.size() ? l.surfaces.get(column.biome) : l.outsideSurface;
+        boolean wet = column.fluidTop() != TerrainSampler.NONE;
         if (y == column.terrainY) {
-            return (fluidTop != TerrainSampler.NONE ? surface.underwater : surface.top).at(x, y, z);
+            return (wet ? surface.underwater : surface.top).at(x, y, z);
         }
         if (y >= column.terrainY - surface.fillerDepth) {
-            return (fluidTop != TerrainSampler.NONE ? surface.underwater : surface.filler).at(x, y, z);
+            return (wet ? surface.underwater : surface.filler).at(x, y, z);
         }
         return l.defaultBlock.at(x, y, z);
+    }
+
+    /** Ground of a generator without a map: grass, dirt, stone and bedrock. */
+    private static BlockState unconfiguredGround(TerrainSampler.Column column, int y, int minY) {
+        if (y == minY) {
+            return Blocks.BEDROCK.defaultBlockState();
+        }
+        if (y == column.terrainY) {
+            return Blocks.GRASS_BLOCK.defaultBlockState();
+        }
+        return y > column.terrainY - 4 ? Blocks.DIRT.defaultBlockState() : Blocks.STONE.defaultBlockState();
     }
 
     private TerrainSampler.Column sample(@Nullable Loaded l, int x, int z, TerrainSampler.Column out) {
@@ -373,8 +380,6 @@ public final class MapChunkGenerator extends ChunkGenerator {
 
     private void fillTerrain(@Nullable Loaded l, ChunkAccess chunk) {
         ChunkPos pos = chunk.getPos();
-        Heightmap oceanFloor = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
-        Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         TerrainSampler.Column column = new TerrainSampler.Column();
 
         Set<LevelChunkSection> acquired = new HashSet<>();
@@ -383,7 +388,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 for (int dz = 0; dz < 16; dz++) {
                     this.sample(l, pos.getBlockX(dx), pos.getBlockZ(dz), column);
                     if (column.terrainY != TerrainSampler.NONE) {
-                        this.fillColumn(l, chunk, column, dx, dz, acquired, oceanFloor, worldSurface);
+                        this.fillColumn(l, chunk, column, dx, dz, acquired);
                     }
                 }
             }
@@ -395,11 +400,13 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     /** Places the blocks of one sampled column; {@code acquired} collects the sections to release. */
-    private void fillColumn(@Nullable Loaded l, ChunkAccess chunk, TerrainSampler.Column column, int dx, int dz, Set<LevelChunkSection> acquired,
-                            Heightmap oceanFloor, Heightmap worldSurface) {
+    private void fillColumn(@Nullable Loaded l, ChunkAccess chunk, TerrainSampler.Column column, int dx, int dz, Set<LevelChunkSection> acquired) {
+        Heightmap oceanFloor = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
+        Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         int minY = chunk.getMinY();
         int x = chunk.getPos().getBlockX(dx);
         int z = chunk.getPos().getBlockZ(dz);
+        // Not Math.clamp: the terrain can be above the world top (explicit dimension), which clamp rejects.
         int top = Math.min(chunk.getMaxY(), Math.max(column.terrainY, column.fluidTop()));
         for (int y = minY; y <= top; y++) {
             BlockState state = this.stateAt(l, column, x, y, z, minY);
@@ -435,7 +442,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         if (!mask.isEmpty()) {
-            this.applyCarvingMask(chunk, mask);
+            applyCarvingMask(chunk, mask);
         }
     }
 

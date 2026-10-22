@@ -19,7 +19,7 @@ import java.util.Locale;
  */
 public final class BlockPalette {
     public static final double DEFAULT_SCALE = 16;
-    private static final String BLOCKS = "blocks";
+    private static final String BLOCKS_KEY = "blocks";
     private static final String BLOCK = "block";
     private static final String WEIGHT = "weight";
     /**
@@ -143,12 +143,12 @@ public final class BlockPalette {
 
     /** {@code {"blocks": [...], "method": ..., "scale": ...}}; null when invalid. */
     private static BlockPalette parseObject(JsonObject o, String p, long seed, ValidationReport report) {
-        Json.checkKnownKeys(o, p, report, BLOCKS, "method", "scale");
-        JsonArray array = Json.array(o, BLOCKS, p, report);
-        if (array == null && !Json.has(o, BLOCKS)) {
+        Json.checkKnownKeys(o, p, report, BLOCKS_KEY, "method", "scale");
+        JsonArray array = Json.array(o, BLOCKS_KEY, p, report);
+        if (array == null && !Json.has(o, BLOCKS_KEY)) {
             report.error(p + ".blocks is required");
         }
-        List<Choice> choices = array == null ? List.of() : choices(array, p + "." + BLOCKS, report);
+        List<Choice> choices = array == null ? List.of() : choices(array, p + "." + BLOCKS_KEY, report);
         Method method = switch (Json.string(o, "method", "random", p, report).toLowerCase(Locale.ROOT)) {
             case "random" -> Method.RANDOM;
             case "perlin" -> Method.PERLIN;

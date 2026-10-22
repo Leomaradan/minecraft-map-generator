@@ -47,8 +47,12 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
     private static final String BIOME_UNDERGROUND = "biome_underground";
     /** Keys of a variant besides {@code biome}: surface blocks and decoration. */
     private static final String[] SURFACE_KEYS = {TOP, FILLER, UNDERWATER, FILLER_DEPTH, SNOW, FEATURES, CARVERS};
-    private static final String[] SUBSTITUTE_KEYS = {BIOME_RIVER, BIOME_BORDER, BIOME_MOUNTAIN, BIOME_UNDERGROUND, "river_width", "border_width",
-            "mountain_y", "underground_depth"};
+    private static final String RIVER_WIDTH = "river_width";
+    private static final String BORDER_WIDTH = "border_width";
+    private static final String MOUNTAIN_Y = "mountain_y";
+    private static final String UNDERGROUND_DEPTH = "underground_depth";
+    private static final String[] SUBSTITUTE_KEYS = {BIOME_RIVER, BIOME_BORDER, BIOME_MOUNTAIN, BIOME_UNDERGROUND, RIVER_WIDTH, BORDER_WIDTH,
+            MOUNTAIN_Y, UNDERGROUND_DEPTH};
 
     /**
      * A biome with its surface blocks and decoration.
@@ -219,29 +223,29 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
         int mountain = substitute(o, BIOME_MOUNTAIN, p, origin, firstSubstitute, substitutes, true, report);
         int underground = substitute(o, BIOME_UNDERGROUND, p, origin, firstSubstitute, substitutes, false, report);
 
-        int riverWidth = Json.integer(o, "river_width", DEFAULT_RIVER_WIDTH, p, report);
+        int riverWidth = Json.integer(o, RIVER_WIDTH, DEFAULT_RIVER_WIDTH, p, report);
         if (riverWidth < 0 || riverWidth > 64) {
             report.error(p + ".river_width must be between 0 and 64");
             riverWidth = DEFAULT_RIVER_WIDTH;
         }
-        int borderWidth = Json.integer(o, "border_width", DEFAULT_BORDER_WIDTH, p, report);
+        int borderWidth = Json.integer(o, BORDER_WIDTH, DEFAULT_BORDER_WIDTH, p, report);
         if (borderWidth < 1 || borderWidth > 64) {
             report.error(p + ".border_width must be between 1 and 64");
             borderWidth = DEFAULT_BORDER_WIDTH;
         }
-        int undergroundDepth = Json.integer(o, "underground_depth", DEFAULT_UNDERGROUND_DEPTH, p, report);
+        int undergroundDepth = Json.integer(o, UNDERGROUND_DEPTH, DEFAULT_UNDERGROUND_DEPTH, p, report);
         if (undergroundDepth < 0) {
             report.error(p + ".underground_depth must not be negative");
             undergroundDepth = DEFAULT_UNDERGROUND_DEPTH;
         }
-        for (String[] rule : new String[][]{{"river_width", BIOME_RIVER}, {"border_width", BIOME_BORDER}, {"mountain_y", BIOME_MOUNTAIN}, {"underground_depth", BIOME_UNDERGROUND}}) {
+        for (String[] rule : new String[][]{{RIVER_WIDTH, BIOME_RIVER}, {BORDER_WIDTH, BIOME_BORDER}, {MOUNTAIN_Y, BIOME_MOUNTAIN}, {UNDERGROUND_DEPTH, BIOME_UNDERGROUND}}) {
             if (Json.has(o, rule[0]) && !Json.has(o, rule[1])) {
                 report.warn(p + "." + rule[0] + " has no effect without " + rule[1]);
             }
         }
         slots.add(base);
         return new Entry(color, base.biome(), river, border, mountain, underground,
-                riverWidth, borderWidth, Json.integer(o, "mountain_y", null, p, report), undergroundDepth);
+                riverWidth, borderWidth, Json.integer(o, MOUNTAIN_Y, null, p, report), undergroundDepth);
     }
 
     /** Reads {@code {"biome": ..., "top": ..., ...}}; null if invalid. */

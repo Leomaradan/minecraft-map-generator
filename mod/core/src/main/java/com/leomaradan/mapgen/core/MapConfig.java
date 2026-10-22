@@ -37,6 +37,7 @@ public record MapConfig(
     private static final String DISABLED = "disabled";
     private static final String ONLY = "only";
     private static final String DEFAULT_BLOCK = "minecraft:stone";
+    private static final String VANILLA_STRUCTURES = "vanilla_structures";
 
     /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
     public record Files(String heightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
@@ -239,7 +240,7 @@ public record MapConfig(
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
         Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
-                "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", "vanilla_structures", "name", "description", "author", "$schema");
+                "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
         if (format > CURRENT_FORMAT) {
@@ -309,15 +310,15 @@ public record MapConfig(
 
     private static VanillaStructures parseVanillaStructures(JsonObject root, ValidationReport report) {
         String p = "map.json";
-        if (root.has("vanilla_structures") && root.get("vanilla_structures").isJsonPrimitive()) {
+        if (root.has(VANILLA_STRUCTURES) && root.get(VANILLA_STRUCTURES).isJsonPrimitive()) {
             // Shorthand: "vanilla_structures": false
-            return new VanillaStructures(Json.bool(root, "vanilla_structures", true, p, report), List.of(), null);
+            return new VanillaStructures(Json.bool(root, VANILLA_STRUCTURES, true, p, report), List.of(), null);
         }
-        JsonObject json = Json.object(root, "vanilla_structures", p, report);
+        JsonObject json = Json.object(root, VANILLA_STRUCTURES, p, report);
         if (json == null) {
             return VanillaStructures.ALL;
         }
-        String vp = p + ".vanilla_structures";
+        String vp = p + "." + VANILLA_STRUCTURES;
         Json.checkKnownKeys(json, vp, report, ENABLED, DISABLED, ONLY);
         List<String> disabled = Json.idList(json, DISABLED, vp, report);
         return new VanillaStructures(Json.bool(json, ENABLED, true, vp, report), disabled == null ? List.of() : disabled,
