@@ -14,7 +14,8 @@ const FEATURES = [
 ];
 
 const SCREENSHOTS = [1, 2, 3, 4];
-const screenshot = (n: number) => `${BASE}screenshots/screen${n}.png`;
+const screenshot = (n: number) => `${BASE}screenshots/screen${n}.webp`;
+const thumbnail = (n: number) => `${BASE}screenshots/screen${n}-thumb.webp`;
 
 export function Landing() {
   const [open, setOpen] = useState<number | null>(null);
@@ -65,7 +66,7 @@ export function Landing() {
           <div className="gallery">
             {SCREENSHOTS.map((n, i) => (
               <button key={n} type="button" className="thumb" onClick={() => setOpen(i)} aria-label={`Enlarge screenshot ${n}`}>
-                <img src={screenshot(n)} alt={`Screenshot ${n}`} loading="lazy" />
+                <img src={thumbnail(n)} alt={`Screenshot ${n}`} width={800} height={395} loading="lazy" />
               </button>
             ))}
           </div>

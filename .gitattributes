@@ -14,3 +14,6 @@
 *.cfg text eol=lf
 *.jks binary
 *.ogg binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
