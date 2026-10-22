@@ -2,6 +2,7 @@
 // Its sources are compiled into each loader jar (see multiloader-loader.gradle), like the common project.
 plugins {
     id 'java-library'
+    id 'jacoco'
 }
 
 java {
@@ -23,6 +24,14 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    finalizedBy(jacocoTestReport)
+}
+
+// XML report is picked up by Sonar from its default location (build/reports/jacoco/test/jacocoTestReport.xml).
+jacocoTestReport {
+    reports {
+        xml.required = true
+    }
 }
 
 configurations {
