@@ -1,0 +1,11 @@
+plugins {
+    // see https://plugins.gradle.org/plugin/org.sonarqube for new versions
+    id 'org.sonarqube' version '7.5.0.8588'
+}
+
+sonar {
+    properties {
+        property 'sonar.projectKey', 'Leomaradan_minecraft-map-generator'
+        property 'sonar.organization', 'leomaradan'
+    }
+}
