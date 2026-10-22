@@ -7,5 +7,7 @@ sonar {
     properties {
         property 'sonar.projectKey', 'Leomaradan_minecraft-map-generator'
         property 'sonar.organization', 'leomaradan'
+        // Loader and Minecraft glue code needs the game to run: only core is unit tested.
+        property 'sonar.coverage.exclusions', 'common/**,fabric/**,neoforge/**'
     }
 }
