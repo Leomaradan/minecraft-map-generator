@@ -19,6 +19,16 @@ import java.util.Locale;
  */
 public final class BlockPalette {
     public static final double DEFAULT_SCALE = 16;
+    private static final String BLOCKS = "blocks";
+    private static final String BLOCK = "block";
+    private static final String WEIGHT = "weight";
+    /**
+     * Shift of the noise coordinates, so that positions don't fall on the noise lattice (where it is
+     * always 0) when the scale divides them, e.g. at scale 1.
+     */
+    private static final double OFFSET_X = 0.3183098861837907;
+    private static final double OFFSET_Y = 0.5772156649015329;
+    private static final double OFFSET_Z = 0.7071067811865476;
 
     /** @param weight relative probability, greater than 0 */
     public record Choice(String block, double weight) {
@@ -44,14 +54,16 @@ public final class BlockPalette {
         this.method = method;
         this.scale = scale;
         this.seed = seed;
+        // Relative to the largest weight: huge weights can't overflow the sum.
+        double max = this.blocks.stream().mapToDouble(Choice::weight).max().orElse(1);
         double total = 0;
         for (Choice c : this.blocks) {
-            total += c.weight();
+            total += c.weight() / max;
         }
         this.cumulative = new double[this.blocks.size()];
         double sum = 0;
         for (int i = 0; i < this.blocks.size(); i++) {
-            sum += this.blocks.get(i).weight();
+            sum += this.blocks.get(i).weight() / max;
             this.cumulative[i] = sum / total;
         }
         this.noise = method == Method.PERLIN && this.blocks.size() > 1 ? new PerlinNoise(seed) : null;
@@ -83,7 +95,9 @@ public final class BlockPalette {
         if (this.blocks.size() == 1) {
             return 0;
         }
-        double u = this.method == Method.PERLIN ? this.noise.uniform(x / this.scale, y / this.scale, z / this.scale) : this.random(x, y, z);
+        double u = this.method == Method.PERLIN
+                ? this.noise.uniform(x / this.scale + OFFSET_X, y / this.scale + OFFSET_Y, z / this.scale + OFFSET_Z)
+                : this.random(x, y, z);
         for (int i = 0; i < this.cumulative.length - 1; i++) {
             if (u < this.cumulative[i]) {
                 return i;
@@ -118,24 +132,24 @@ public final class BlockPalette {
         }
         if (e.isJsonArray()) {
             List<Choice> choices = choices(e.getAsJsonArray(), p, report);
-            return choices == null ? null : new BlockPalette(choices, Method.RANDOM, DEFAULT_SCALE, seed);
+            return choices.isEmpty() ? null : new BlockPalette(choices, Method.RANDOM, DEFAULT_SCALE, seed);
         }
-        if (!e.isJsonObject()) {
-            report.error(p + " must be a block id, a list of blocks, or {\"blocks\": [...], \"method\": ...}");
-            return null;
+        if (e.isJsonObject()) {
+            return parseObject(e.getAsJsonObject(), p, seed, report);
         }
-        JsonObject o = e.getAsJsonObject();
-        Json.checkKnownKeys(o, p, report, "blocks", "method", "scale");
-        JsonArray array = Json.array(o, "blocks", p, report);
-        if (array == null) {
-            if (!Json.has(o, "blocks")) {
-                report.error(p + ".blocks is required");
-            }
-            return null;
+        report.error(p + " must be a block id, a list of blocks, or {\"blocks\": [...], \"method\": ...}");
+        return null;
+    }
+
+    /** {@code {"blocks": [...], "method": ..., "scale": ...}}; null when invalid. */
+    private static BlockPalette parseObject(JsonObject o, String p, long seed, ValidationReport report) {
+        Json.checkKnownKeys(o, p, report, BLOCKS, "method", "scale");
+        JsonArray array = Json.array(o, BLOCKS, p, report);
+        if (array == null && !Json.has(o, BLOCKS)) {
+            report.error(p + ".blocks is required");
         }
-        List<Choice> choices = choices(array, p + ".blocks", report);
-        String methodName = Json.string(o, "method", "random", p, report).toLowerCase(Locale.ROOT);
-        Method method = switch (methodName) {
+        List<Choice> choices = array == null ? List.of() : choices(array, p + "." + BLOCKS, report);
+        Method method = switch (Json.string(o, "method", "random", p, report).toLowerCase(Locale.ROOT)) {
             case "random" -> Method.RANDOM;
             case "perlin" -> Method.PERLIN;
             default -> {
@@ -148,49 +162,43 @@ public final class BlockPalette {
             report.error(p + ".scale must be greater than 0");
             scale = DEFAULT_SCALE;
         }
-        if (choices == null || method == null) {
-            return null;
-        }
-        return new BlockPalette(choices, method, scale, seed);
+        return choices.isEmpty() || method == null ? null : new BlockPalette(choices, method, scale, seed);
     }
 
+    /** The choices of a list; empty when the list is empty or has an invalid element. */
     private static List<Choice> choices(JsonArray array, String p, ValidationReport report) {
         if (array.isEmpty()) {
             report.error(p + " must not be empty");
-            return null;
+            return List.of();
         }
         List<Choice> choices = new ArrayList<>();
-        boolean valid = true;
         for (int i = 0; i < array.size(); i++) {
-            String ip = p + "[" + i + "]";
-            JsonElement e = array.get(i);
-            if (e.isJsonObject()) {
-                JsonObject o = e.getAsJsonObject();
-                Json.checkKnownKeys(o, ip, report, "block", "weight");
-                String id = Json.id(o, "block", null, ip, report);
-                if (id == null && !Json.has(o, "block")) {
-                    report.error(ip + ".block is required");
-                }
-                double weight = Json.number(o, "weight", 1.0, ip, report);
-                if (weight <= 0) {
-                    report.error(ip + ".weight must be greater than 0");
-                    id = null;
-                }
-                if (id == null) {
-                    valid = false;
-                } else {
-                    choices.add(new Choice(id, weight));
-                }
-            } else {
-                String id = blockId(e, ip, report);
-                if (id == null) {
-                    valid = false;
-                } else {
-                    choices.add(new Choice(id, 1));
-                }
+            Choice choice = choice(array.get(i), p + "[" + i + "]", report);
+            if (choice != null) {
+                choices.add(choice);
             }
         }
-        return valid ? choices : null;
+        return choices.size() == array.size() ? choices : List.of();
+    }
+
+    /** A block id (weight 1) or {@code {"block": ..., "weight": ...}}; null when invalid. */
+    private static Choice choice(JsonElement e, String p, ValidationReport report) {
+        if (!e.isJsonObject()) {
+            String id = blockId(e, p, report);
+            return id == null ? null : new Choice(id, 1);
+        }
+        JsonObject o = e.getAsJsonObject();
+        Json.checkKnownKeys(o, p, report, BLOCK, WEIGHT);
+        String id = Json.id(o, BLOCK, null, p, report);
+        if (id == null && !Json.has(o, BLOCK)) {
+            report.error(p + ".block is required");
+        }
+        double weight = Json.number(o, WEIGHT, 1.0, p, report);
+        if (weight <= 0) {
+            report.error(p + ".weight must be greater than 0");
+            return null;
+        }
+        return id == null ? null : new Choice(id, weight);
     }
 
     private static String blockId(JsonElement e, String p, ValidationReport report) {

@@ -1,13 +1,11 @@
 package com.leomaradan.mapgen.world;
 
-import com.leomaradan.mapgen.core.BiomeMapping;
 import com.leomaradan.mapgen.core.DimensionLayout;
 import com.leomaradan.mapgen.core.MapConfig;
 import com.leomaradan.mapgen.core.MapPack;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -70,14 +68,12 @@ public record MapSettings(String pack, String name, int minY, int height, int se
         MapConfig.VanillaStructures structures = config.vanillaStructures();
         MapConfig.Features features = config.decoration().features();
         MapConfig.Carvers carvers = config.decoration().carvers();
-        List<BiomeFeatures> biomeFeatures = new ArrayList<>();
-        for (BiomeMapping.Variant slot : pack.biomeMapping().slots()) {
-            if (slot.features() != null) {
-                biomeFeatures.add(BiomeFeatures.of(slot.biome(), slot.features()));
-            }
-        }
+        List<BiomeFeatures> biomeFeatures = pack.biomeMapping().slots().stream()
+                .filter(slot -> slot.features() != null)
+                .map(slot -> BiomeFeatures.of(slot.biome(), slot.features()))
+                .toList();
         return new MapSettings(pack.id(), pack.name(), pack.layout().minY(), pack.layout().height(), config.seaLevel(),
-                features.enabled(), features.disabled(), features.disabledSteps(), Optional.ofNullable(features.only()), List.copyOf(biomeFeatures),
+                features.enabled(), features.disabled(), features.disabledSteps(), Optional.ofNullable(features.only()), biomeFeatures,
                 carvers.cave(), Optional.of(carvers.canyon()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()));
     }
 

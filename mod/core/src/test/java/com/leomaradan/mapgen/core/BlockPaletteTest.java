@@ -82,6 +82,19 @@ class BlockPaletteTest {
     }
 
     @Test
+    void hugeWeightsDontOverflow() {
+        double[] shares = shares(parse("[{\"block\": \"stone\", \"weight\": 1e308}, {\"block\": \"dirt\", \"weight\": 1e308}]"));
+        assertEquals(0.5, shares[0], 0.02);
+    }
+
+    @Test
+    void perlinAtScaleOneStillMixes() {
+        // Every position falls on the noise lattice at scale 1 without the offset: the noise is 0 there.
+        double[] shares = shares(parse("{\"blocks\": [\"stone\", \"dirt\"], \"method\": \"perlin\", \"scale\": 1}"));
+        assertEquals(0.5, shares[0], 0.1);
+    }
+
+    @Test
     void objectDefaultsToRandom() {
         BlockPalette palette = parse("{\"blocks\": [\"stone\", \"andesite\"]}");
         assertEquals(BlockPalette.Method.RANDOM, palette.method());
