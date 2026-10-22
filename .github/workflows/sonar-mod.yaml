@@ -1,10 +1,6 @@
 name: SonarQube Mod
 
 on:
-  push:
-    paths:
-      - 'mod/**'
-      - '.github/workflows/sonar-mod.yaml'
   pull_request:
     paths:
       - 'mod/**'
