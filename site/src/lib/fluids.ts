@@ -1,0 +1,156 @@
+import type { FluidBody, Raster } from './project';
+import type { HeightMapping } from './heightMapping';
+import { maxValue } from './heightMapping';
+
+export interface FluidResult {
+  water: Uint16Array;
+  lava: Uint16Array;
+  /** 1 where the computed surface is not above the ground (the mod places nothing there). */
+  low: Uint8Array;
+  /** Surface level in raster units for each painted pixel (0 = none). */
+  levels: Float32Array;
+}
+
+const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+const RIVER_WORK_BUDGET = 3e7;
+
+/** Labels the 4-connected components of the painted pixels (same body id). Pixels are grouped by component. */
+function labelComponents(labels: Uint16Array, width: number) {
+  const n = labels.length;
+  const order = new Int32Array(n);
+  const starts: number[] = [];
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  let count = 0;
+  for (let start = 0; start < n; start++) {
+    if (labels[start] === 0 || seen[start]) continue;
+    const label = labels[start];
+    starts.push(count);
+    let top = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    while (top > 0) {
+      const p = stack[--top];
+      order[count++] = p;
+      const x = p % width;
+      if (x > 0 && labels[p - 1] === label && !seen[p - 1]) { seen[p - 1] = 1; stack[top++] = p - 1; }
+      if (x < width - 1 && labels[p + 1] === label && !seen[p + 1]) { seen[p + 1] = 1; stack[top++] = p + 1; }
+      if (p >= width && labels[p - width] === label && !seen[p - width]) { seen[p - width] = 1; stack[top++] = p - width; }
+      if (p + width < n && labels[p + width] === label && !seen[p + width]) { seen[p + width] = 1; stack[top++] = p + width; }
+    }
+  }
+  starts.push(count);
+  return { order, starts };
+}
+
+/** Lowest ground among the unpainted neighbours of a component, or -1 if it has none. */
+function lowestBank(order: Int32Array, from: number, to: number, labels: Uint16Array, ground: Uint16Array, width: number, height: number): number {
+  let lowest = -1;
+  for (let k = from; k < to; k++) {
+    const p = order[k];
+    const x = p % width;
+    const y = (p - x) / width;
+    for (const [dx, dy] of NEIGHBORS) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const q = ny * width + nx;
+      if (labels[q] === 0 && (lowest < 0 || ground[q] < lowest)) lowest = ground[q];
+    }
+  }
+  return lowest;
+}
+
+/**
+ * Smooth surface between the bank heights: each pixel is the average of its neighbours, with the
+ * banks fixed (Laplace equation, successive over-relaxation). Writes into `value`.
+ */
+function solveRiver(order: Int32Array, from: number, to: number, labels: Uint16Array, ground: Uint16Array, width: number, height: number, value: Float32Array): void {
+  const body = labels[order[from]];
+  const omega = 1.8;
+  const size = to - from;
+  const maxIter = Math.max(20, Math.min(4000, Math.floor(RIVER_WORK_BUDGET / size)));
+  for (let iter = 0; iter < maxIter; iter++) {
+    let delta = 0;
+    for (let k = from; k < to; k++) {
+      const p = order[k];
+      const x = p % width;
+      const y = (p - x) / width;
+      let sum = 0;
+      let count = 0;
+      for (const [dx, dy] of NEIGHBORS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const q = ny * width + nx;
+        if (labels[q] === body) {
+          sum += value[q];
+          count++;
+        } else if (labels[q] === 0) {
+          sum += ground[q];
+          count++;
+        }
+      }
+      if (count === 0) continue;
+      const next = value[p] + omega * (sum / count - value[p]);
+      delta = Math.max(delta, Math.abs(next - value[p]));
+      value[p] = next;
+    }
+    if (delta < 0.005) break;
+  }
+}
+
+/** Computes the water and lava rasters from the painted bodies. */
+export function solveFluids(
+  labels: Uint16Array,
+  rawLevels: Uint16Array,
+  bodies: FluidBody[],
+  heightmap: Raster,
+  mapping: HeightMapping,
+): FluidResult {
+  const { width, height, data: ground } = heightmap;
+  const n = width * height;
+  const result: FluidResult = {
+    water: new Uint16Array(n),
+    lava: new Uint16Array(n),
+    low: new Uint8Array(n),
+    levels: new Float32Array(n),
+  };
+  const max = maxValue(mapping.bitDepth);
+  const byId = new Map(bodies.map((b) => [b.id, b]));
+  const { order, starts } = labelComponents(labels, width);
+  const value = new Float32Array(n);
+  for (let c = 0; c + 1 < starts.length; c++) {
+    const from = starts[c];
+    const to = starts[c + 1];
+    const body = byId.get(labels[order[from]]);
+    if (!body) continue;
+    const target = body.fluid === 'water' ? result.water : result.lava;
+    const raw = body.mode === 'raw';
+    if (!raw) {
+      const override = body.levelOverride === undefined ? undefined : (body.levelOverride - mapping.baseY) / mapping.scale;
+      const bank = lowestBank(order, from, to, labels, ground, width, height);
+      if (override !== undefined) {
+        for (let k = from; k < to; k++) value[order[k]] = override;
+      } else {
+        let lowest = bank;
+        if (lowest < 0) {
+          lowest = Infinity;
+          for (let k = from; k < to; k++) lowest = Math.min(lowest, ground[order[k]]);
+        }
+        for (let k = from; k < to; k++) value[order[k]] = lowest;
+        if (body.mode === 'river' && bank >= 0) solveRiver(order, from, to, labels, ground, width, height, value);
+      }
+    }
+    const offset = raw ? 0 : body.offset / mapping.scale;
+    for (let k = from; k < to; k++) {
+      const p = order[k];
+      const level = Math.max(0, Math.min(max, Math.round((raw ? rawLevels[p] : value[p]) + offset)));
+      result.levels[p] = level;
+      target[p] = level;
+      if (level <= ground[p]) result.low[p] = 1;
+    }
+  }
+  return result;
+}
