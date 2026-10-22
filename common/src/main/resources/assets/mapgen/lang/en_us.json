@@ -1,0 +1,22 @@
+{
+  "generator.mapgen.map": "Map from ZIP",
+  "mapgen.screen.title": "Map from ZIP",
+  "mapgen.screen.path": "Map ZIP file",
+  "mapgen.screen.path.hint": "Path to the map .zip file",
+  "mapgen.screen.browse": "Browse...",
+  "mapgen.screen.browse.tooltip": "Choose the ZIP file. You can also drop it on this screen.",
+  "mapgen.screen.folder_maps": "Maps folder",
+  "mapgen.screen.folder_empty": "No ZIP in the maps folder",
+  "mapgen.screen.open_folder": "Open folder",
+  "mapgen.screen.help": "Select a map ZIP: type its path, use Browse, drop the file here, or put it in %s.",
+  "mapgen.screen.invalid_path": "This is not a valid path.",
+  "mapgen.screen.not_found": "File not found.",
+  "mapgen.screen.validating": "Checking the map...",
+  "mapgen.screen.valid": "Map \"%s\" is ready.",
+  "mapgen.screen.invalid": "This map can't be used:",
+  "mapgen.screen.more": "... and %s more",
+  "mapgen.screen.no_dialog": "The file dialog is not available. Type the path, drop the file on this screen, or put it in %s.",
+  "mapgen.error.title": "Map from ZIP",
+  "mapgen.error.datapack": "Can't install the map datapacks: %s",
+  "mapgen.error.no_map": "Select a map ZIP before creating the world."
+}

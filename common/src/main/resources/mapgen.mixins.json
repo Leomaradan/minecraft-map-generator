@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.leomaradan.mapgen.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "ChunkGeneratorStructureStateInvoker",
+    "MinecraftServerMixin"
+  ],
+  "client": [
+    "client.CreateWorldScreenInvoker",
+    "client.CreateWorldScreenMixin",
+    "client.WorldCreationUiStateMixin"
+  ],
+  "server": [
+    "server.DedicatedServerPropertiesMixin",
+    "server.MainMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

@@ -1,0 +1,41 @@
+pluginManagement {
+    plugins {
+        // Declared here rather than in the root build so that `-PcoreOnly` builds never resolve them
+        // (Loom needs Gradle to run on Java 25).
+        // see https://maven.fabricmc.net/fabric-loom/fabric-loom.gradle.plugin/maven-metadata.xml for new versions
+        id 'net.fabricmc.fabric-loom' version '1.18.1'
+        // see https://projects.neoforged.net/neoforged/moddevgradle for new versions
+        id 'net.neoforged.moddev' version '2.0.148'
+    }
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Fabric'
+                    url = uri('https://maven.fabricmc.net')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('net.fabricmc')
+            }
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'minecraft-map-generator'
+includeBuild('build-logic')
+
+// Minecraft-independent code (map pack parsing, validation, terrain sampling). Builds and tests
+// without any Minecraft download: ./gradlew -PcoreOnly :core:test
+include('core')
+if (!providers.gradleProperty('coreOnly').isPresent()) {
+    include('common')
+    include('fabric')
+    include('neoforge')
+}
