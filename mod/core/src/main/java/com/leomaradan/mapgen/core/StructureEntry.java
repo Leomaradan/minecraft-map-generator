@@ -8,13 +8,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Predicate;
 
-/** One entry of {@code structures.json}. */
+/** One entry of {@code structures.json}. Positions are world coordinates once the file is read. */
 public sealed interface StructureEntry {
 
     int x();
 
     int z();
+
+    /** The same entry at another position. */
+    StructureEntry at(int x, int z);
 
     enum Rotation {
         NONE, CLOCKWISE_90, CLOCKWISE_180, COUNTERCLOCKWISE_90
@@ -32,22 +36,50 @@ public sealed interface StructureEntry {
      */
     record Template(String path, int x, Integer y, int yOffset, int z, Rotation rotation, Mirror mirror, boolean includeEntities)
             implements StructureEntry {
+        @Override
+        public Template at(int x, int z) {
+            return new Template(this.path, x, this.y, this.yOffset, z, this.rotation, this.mirror, this.includeEntities);
+        }
     }
 
-    /** A registered structure (vanilla, modded or from the ZIP datapack), e.g. {@code minecraft:bastion_remnant}. */
-    record Structure(String id, int x, int z) implements StructureEntry {
+    /**
+     * A registered structure (vanilla, modded or from the ZIP datapack), e.g. {@code minecraft:bastion_remnant}.
+     *
+     * @param fallbackId structure used when {@code id} doesn't exist (e.g. from a mod that isn't installed), or null
+     */
+    record Structure(String id, String fallbackId, int x, int z) implements StructureEntry {
+        @Override
+        public Structure at(int x, int z) {
+            return new Structure(this.id, this.fallbackId, x, z);
+        }
+
+        /** The id to generate: {@code id} if it exists, else {@code fallbackId} if it exists, else null (skipped). */
+        public String resolve(Predicate<String> exists) {
+            if (exists.test(this.id)) {
+                return this.id;
+            }
+            return this.fallbackId != null && exists.test(this.fallbackId) ? this.fallbackId : null;
+        }
     }
 
-    static List<StructureEntry> parseList(JsonElement root, String fileName, Set<String> zipEntries, ValidationReport report) {
+    /**
+     * Reads structures.json. Positions are heightmap pixels, converted to world coordinates with
+     * {@code sampler} (the center of the pixel), unless {@code "coordinates": "world"}; the
+     * deprecated list form uses world coordinates.
+     */
+    static List<StructureEntry> parseList(JsonElement root, String fileName, Set<String> zipEntries, TerrainSampler sampler, ValidationReport report) {
         List<StructureEntry> result = new ArrayList<>();
         JsonArray array;
         String arrayPath;
+        boolean pixels;
         if (root.isJsonArray()) {
-            report.warn(fileName + " is a JSON array; this form is deprecated, use {\"structures\": [...]}");
+            report.warn(fileName + " is a JSON array; this form is deprecated, use {\"structures\": [...]} (positions are then in pixels)");
             array = root.getAsJsonArray();
             arrayPath = fileName;
+            pixels = false;
         } else if (root.isJsonObject()) {
-            Json.checkKnownKeys(root.getAsJsonObject(), fileName, report, "$schema", "structures");
+            Json.checkKnownKeys(root.getAsJsonObject(), fileName, report, "$schema", "coordinates", "structures");
+            pixels = pixelCoordinates(root.getAsJsonObject(), fileName, report);
             array = Json.array(root.getAsJsonObject(), "structures", fileName, report);
             arrayPath = fileName + ".structures";
             if (array == null) {
@@ -69,10 +101,26 @@ public sealed interface StructureEntry {
             }
             StructureEntry entry = parse(e.getAsJsonObject(), p, zipEntries, report);
             if (entry != null) {
-                result.add(entry);
+                result.add(pixels ? toWorld(entry, p, sampler, report) : entry);
             }
         }
         return List.copyOf(result);
+    }
+
+    /** {@code "coordinates"}: {@code "pixels"} (default) or {@code "world"}. */
+    private static boolean pixelCoordinates(JsonObject root, String fileName, ValidationReport report) {
+        String coordinates = Json.string(root, "coordinates", "pixels", fileName, report).toLowerCase(Locale.ROOT);
+        if (!coordinates.equals("pixels") && !coordinates.equals("world")) {
+            report.error(fileName + ".coordinates must be \"pixels\" or \"world\"");
+        }
+        return !coordinates.equals("world");
+    }
+
+    private static StructureEntry toWorld(StructureEntry entry, String p, TerrainSampler sampler, ValidationReport report) {
+        if (!sampler.isPixelInside(entry.x(), entry.z())) {
+            report.warn(p + ": pixel " + entry.x() + ", " + entry.z() + " is outside the heightmap");
+        }
+        return entry.at(sampler.pixelToWorldX(entry.x()), sampler.pixelToWorldZ(entry.z()));
     }
 
     private static StructureEntry parse(JsonObject o, String p, Set<String> zipEntries, ValidationReport report) {
@@ -127,13 +175,13 @@ public sealed interface StructureEntry {
             return new Template(path, x, y, Json.integer(o, "y_offset", 0, p, report), z, rotation, mirror, Json.bool(o, "entities", true, p, report));
         }
         if ("structure".equals(type)) {
-            Json.checkKnownKeys(o, p, report, "type", "id", "x", "z");
+            Json.checkKnownKeys(o, p, report, "type", "id", "fallback_id", "x", "z");
             String id = Json.id(o, "id", null, p, report);
             if (id == null) {
                 report.error(p + ".id is required for a structure");
                 return null;
             }
-            return new Structure(id, x, z);
+            return new Structure(id, Json.id(o, "fallback_id", null, p, report), x, z);
         }
         report.error(p + ".type must be \"template\" or \"structure\"");
         return null;

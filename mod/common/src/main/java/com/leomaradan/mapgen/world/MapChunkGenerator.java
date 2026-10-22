@@ -620,10 +620,10 @@ public final class MapChunkGenerator extends ChunkGenerator {
         ChunkPos chunkPos = centerChunk.getPos();
         HolderLookup.RegistryLookup<Structure> structures = registryAccess.lookupOrThrow(Registries.STRUCTURE);
         for (StructureEntry.Structure entry : l.structures.forcedIn(chunkPos)) {
-            Identifier id = Identifier.tryParse(entry.id());
-            Optional<Holder.Reference<Structure>> holder = id == null ? Optional.empty() : structures.get(ResourceKey.create(Registries.STRUCTURE, id));
+            Optional<Holder.Reference<Structure>> holder = resolve(entry, structures);
             if (holder.isEmpty()) {
-                MapGen.LOG.warn("[{}] Unknown structure {} at {}, {}", l.pack.name(), entry.id(), entry.x(), entry.z());
+                MapGen.LOG.warn("[{}] Unknown structure {} (and no existing fallback_id) at {}, {}: skipped", l.pack.name(), entry.id(), entry.x(),
+                        entry.z());
                 continue;
             }
             Structure structure = holder.get().value();
@@ -642,6 +642,17 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
     }
 
+    /** The structure of an entry: its {@code id}, else its {@code fallback_id}; empty when neither exists. */
+    private static Optional<Holder.Reference<Structure>> resolve(StructureEntry.Structure entry, HolderLookup<Structure> structures) {
+        String id = entry.resolve(candidate -> structureHolder(candidate, structures).isPresent());
+        return id == null ? Optional.empty() : structureHolder(id, structures);
+    }
+
+    private static Optional<Holder.Reference<Structure>> structureHolder(String id, HolderLookup<Structure> structures) {
+        Identifier key = Identifier.tryParse(id);
+        return key == null ? Optional.empty() : structures.get(ResourceKey.create(Registries.STRUCTURE, key));
+    }
+
     /** Makes the structures listed in structures.json findable with /locate. */
     @Override
     public @Nullable Pair<BlockPos, Holder<Structure>> findNearestMapStructure(ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos,
@@ -652,9 +663,14 @@ public final class MapChunkGenerator extends ChunkGenerator {
             return nearest;
         }
         double nearestDistance = nearest == null ? Double.MAX_VALUE : pos.distSqr(nearest.getFirst());
+        HolderLookup<Structure> structures = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
         for (StructureEntry.Structure entry : l.structures.forced()) {
+            Optional<Holder.Reference<Structure>> resolved = resolve(entry, structures);
+            if (resolved.isEmpty()) {
+                continue;
+            }
             for (Holder<Structure> wanted : wantedStructures) {
-                if (wanted.unwrapKey().map(key -> key.identifier().toString().equals(entry.id())).orElse(false)) {
+                if (wanted.is(resolved.get().key())) {
                     BlockPos candidate = new BlockPos(entry.x(), this.surfaceY(entry.x(), entry.z()), entry.z());
                     double distance = pos.distSqr(candidate);
                     if (distance < nearestDistance) {

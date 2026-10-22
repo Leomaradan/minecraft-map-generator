@@ -72,6 +72,12 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
             return new Variant(biome, null, null, null, null, null, null, null, origin);
         }
 
+        /** This substitute with the {@code snow}, {@code features} and {@code carvers} of its entry where it has none. */
+        Variant inheriting(Variant entry) {
+            return new Variant(this.biome, this.top, this.filler, this.underwater, this.fillerDepth, this.snow != null ? this.snow : entry.snow,
+                    this.features != null ? this.features : entry.features, this.carvers != null ? this.carvers : entry.carvers, this.origin);
+        }
+
         /** Block ids named by the surface layers. */
         public List<String> blockIds() {
             List<String> ids = new ArrayList<>();
@@ -218,10 +224,14 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
         if (base == null) {
             return null;
         }
+        int ownSubstitutes = substitutes.size();
         int river = substitute(o, BIOME_RIVER, p, origin, firstSubstitute, substitutes, true, report);
         int border = substitute(o, BIOME_BORDER, p, origin, firstSubstitute, substitutes, true, report);
         int mountain = substitute(o, BIOME_MOUNTAIN, p, origin, firstSubstitute, substitutes, true, report);
         int underground = substitute(o, BIOME_UNDERGROUND, p, origin, firstSubstitute, substitutes, false, report);
+        for (int i = ownSubstitutes; i < substitutes.size(); i++) {
+            substitutes.set(i, substitutes.get(i).inheriting(base));
+        }
 
         int riverWidth = Json.integer(o, RIVER_WIDTH, DEFAULT_RIVER_WIDTH, p, report);
         if (riverWidth < 0 || riverWidth > 64) {

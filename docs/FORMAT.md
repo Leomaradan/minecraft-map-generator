@@ -150,7 +150,8 @@ An entry can replace its biome in some places. Each substitute is optional. Its 
 id, or an object with `biome` and its own `top`, `filler`, `filler_depth`, `underwater`, `snow`,
 `features` and `carvers`.
 A substitute given as a plain id uses the default surface blocks of that biome, not the
-entry's blocks.
+entry's blocks. A substitute uses the `snow`, `features` and `carvers` of its entry, unless it
+sets its own (in its object form).
 
 | Key | Used | Setting |
 |---|---|---|
@@ -168,9 +169,13 @@ features (moss, dripstone...). The edges of the map image don't count as a borde
 
 Borders between biomes don't follow the pixel edges exactly. They are shifted by a smooth noise,
 up to `biome_transition` blocks (`map.json`, default `4`), so a straight line between a desert
-and a savanna becomes a natural curve. The noise is the same in every world made from the map,
-and it is smooth enough that a 1-pixel river stays connected. Set `"biome_transition": 0` to
-keep the exact pixel borders.
+and a savanna becomes a natural curve, about `7.5 × biome_transition` blocks long. The noise is
+the same in every world made from the map. Set `"biome_transition": 0` to keep the exact pixel
+borders.
+
+The noise is smooth enough that a band 2 pixels wide drawn in the biome map stays connected; a
+1-pixel band (with `horizontal_scale` 1) can have small gaps. Rivers made with the water map and
+`biome_river` are not shifted.
 
 Grass, foliage and water colors are also blended by the game's "Biome Blend" video setting.
 That's why some transitions (meadow to swamp) already looked smooth while changes of surface
@@ -335,23 +340,28 @@ generated, nor the `structure` entries of `structures.json` (templates are still
 
 ## `structures.json`
 
-Structures placed at fixed coordinates (world coordinates, not pixels):
+Structures placed at fixed positions. `x` and `z` are pixels of the heightmap: the structure goes
+to the center of that pixel in the world, wherever `origin` and `horizontal_scale` put it.
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/structures.schema.json",
   "structures": [
-    { "type": "template", "path": "structures/castle.nbt", "x": 120, "y": "surface", "z": -40,
+    { "type": "template", "path": "structures/castle.nbt", "x": 120, "y": "surface", "z": 40,
       "y_offset": -1, "rotation": "clockwise_90", "mirror": "none", "entities": true },
     { "type": "template", "path": "structures/tower.nbt", "x": 300, "y": 95, "z": 12 },
-    { "type": "structure", "id": "minecraft:pillager_outpost", "x": 500, "z": 500 },
-    { "type": "structure", "id": "minecraft:bastion_remnant", "x": -800, "z": 200 }
+    { "type": "structure", "id": "minecraft:village_desert", "x": 547, "z": 2287 },
+    { "type": "structure", "id": "mymod:castle", "fallback_id": "minecraft:pillager_outpost", "x": 800, "z": 200 }
   ]
 }
 ```
 
-A file that is only the list (the format before `"structures"` existed) still works, with a
-warning.
+* With `"coordinates": "world"` next to `"structures"`, `x` and `z` are world block
+  coordinates instead.
+* A position outside the heightmap gives a warning (the structure is still placed).
+* `y` is always a world Y.
+* A file that is only the list (the format before `"structures"` existed) still works, with a
+  warning. Its positions are world coordinates, as they were then.
 
 * **`template`**: a structure template file from the ZIP (`.nbt`, as saved by a Structure Block
   or Minecraft's tools). Its origin (the corner with the smallest coordinates before rotation) is
@@ -364,6 +374,9 @@ warning.
   the ones `/place structure` accepts. It is generated in the chunk containing `x, z`; the exact
   position inside the chunk and the height are chosen by the structure itself. Biome rules are
   ignored. These structures are found by `/locate structure`.
+  When `id` doesn't exist (a structure from a mod that isn't installed), `fallback_id` is used
+  instead; without a `fallback_id` that exists, the structure is skipped. Both cases are reported
+  as warnings when the map is loaded.
 
 `type` can be omitted: an entry with `path` is a template, one with `id` a structure.
 

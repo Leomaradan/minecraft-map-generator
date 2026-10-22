@@ -107,10 +107,8 @@ public final class ClientMaps {
         var structures = context.worldgenLoadContext().lookupOrThrow(Registries.STRUCTURE);
         for (StructureEntry entry : pack.structures()) {
             if (entry instanceof StructureEntry.Structure structure) {
-                Identifier key = Identifier.parse(structure.id());
-                if (structures.get(ResourceKey.create(Registries.STRUCTURE, key)).isEmpty() && !definedByDatapack(pack, "worldgen/structure", key)) {
-                    report.error("structure " + structure.id() + " does not exist");
-                }
+                MapWorlds.reportMissingStructure(structure, id -> structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(id))).isPresent()
+                        || definedByDatapack(pack, "worldgen/structure", Identifier.parse(id)), report);
             }
         }
         for (String block : pack.blockIds()) {
