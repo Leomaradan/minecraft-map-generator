@@ -33,7 +33,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
     /** Default height of {@code biome_mountain} above the sea level, in blocks. */
     public static final int DEFAULT_MOUNTAIN_ABOVE_SEA = 64;
 
-    private static final String[] SURFACE_KEYS = {"top", "filler", "underwater", "filler_depth"};
+    private static final String[] SURFACE_KEYS = {"top", "filler", "underwater", "filler_depth", "snow"};
 
     /**
      * A biome with its surface blocks.
@@ -42,9 +42,11 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
      * @param filler      block under the surface, null for the default derived from the biome
      * @param underwater  surface block under water or lava, null for the default
      * @param fillerDepth thickness of top + filler layers, null for the default
+     * @param snow        where snow and ice may form, null for {@code snow} of map.json
      * @param origin      where it comes from in biomes.json, for messages (e.g. "#3A7D22.biome_river")
      */
-    public record Variant(String biome, String top, String filler, String underwater, Integer fillerDepth, String origin) {
+    public record Variant(String biome, String top, String filler, String underwater, Integer fillerDepth, MapConfig.Snow snow,
+                          String origin) {
     }
 
     /**
@@ -160,7 +162,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
                 report.error(p + ": \"" + biome + "\" is not a valid biome id");
                 return null;
             }
-            slots.add(new Variant(Json.normalizeId(biome), null, null, null, null, origin));
+            slots.add(new Variant(Json.normalizeId(biome), null, null, null, null, null, origin));
             return new Entry(color, Json.normalizeId(biome), null, null, null, null, -1, -1, -1, -1,
                     DEFAULT_RIVER_WIDTH, DEFAULT_BORDER_WIDTH, null, DEFAULT_UNDERGROUND_DEPTH);
         }
@@ -169,7 +171,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
             return null;
         }
         JsonObject o = value.getAsJsonObject();
-        Json.checkKnownKeys(o, p, report, "biome", "top", "filler", "underwater", "filler_depth", "biome_river", "biome_border", "biome_mountain",
+        Json.checkKnownKeys(o, p, report, "biome", "top", "filler", "underwater", "filler_depth", "snow", "biome_river", "biome_border", "biome_mountain",
                 "biome_underground", "river_width", "border_width", "mountain_y", "underground_depth");
         Variant base = parseVariant(o, p, origin, report);
         if (base == null) {
@@ -218,7 +220,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
             depth = null;
         }
         return new Variant(biome, Json.id(o, "top", null, p, report), Json.id(o, "filler", null, p, report), Json.id(o, "underwater", null, p, report),
-                depth, origin);
+                depth, MapConfig.Snow.parse(o, "snow", p, report), origin);
     }
 
     /**
@@ -241,7 +243,7 @@ public record BiomeMapping(List<Entry> entries, List<Variant> slots) {
                 report.error(sp + ": \"" + e.getAsString() + "\" is not a valid biome id");
                 return -1;
             }
-            variant = new Variant(Json.normalizeId(e.getAsString()), null, null, null, null, so);
+            variant = new Variant(Json.normalizeId(e.getAsString()), null, null, null, null, null, so);
         } else if (withSurface && e.isJsonObject()) {
             Json.checkKnownKeys(e.getAsJsonObject(), sp, report, concat("biome", SURFACE_KEYS));
             variant = parseVariant(e.getAsJsonObject(), sp, so, report);

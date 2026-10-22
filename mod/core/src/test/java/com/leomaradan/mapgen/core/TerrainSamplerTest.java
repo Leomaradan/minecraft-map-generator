@@ -184,6 +184,24 @@ class TerrainSamplerTest {
     }
 
     @Test
+    void snowRange() {
+        assertEquals(MapConfig.Snow.ALL, config("{}").snow());
+        assertEquals(MapConfig.Snow.NONE, config("{\"snow\": false}").snow());
+        MapConfig.Snow snow = config("{\"snow\": {\"min_y\": 100, \"max_y\": 200}}").snow();
+        assertFalse(snow.allows(99));
+        assertTrue(snow.allows(100));
+        assertTrue(snow.allows(200));
+        assertFalse(snow.allows(201));
+        assertTrue(config("{\"snow\": {\"max_y\": 200}}").snow().allows(-64));
+
+        for (String json : new String[]{"{\"snow\": {\"min_y\": 300, \"max_y\": 200}}", "{\"snow\": 3}"}) {
+            ValidationReport report = new ValidationReport();
+            MapConfig.parse(JsonParser.parseString(json).getAsJsonObject(), report);
+            assertTrue(report.hasErrors(), json);
+        }
+    }
+
+    @Test
     void biomeTransitionRange() {
         assertEquals(MapConfig.DEFAULT_BIOME_TRANSITION, config("{\"$schema\": \"x\"}").biomeTransition());
         assertEquals(0, config("{\"biome_transition\": 0}").biomeTransition());

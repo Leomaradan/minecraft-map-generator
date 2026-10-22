@@ -48,6 +48,10 @@
         "underwater": {
           "$ref": "#/$defs/resource_id",
           "description": "Top blocks under water or lava."
+        },
+        "snow": {
+          "$ref": "#/$defs/snow",
+          "description": "Where snow and ice may form in this biome; overrides snow of map.json."
         }
       }
     },
@@ -123,6 +127,33 @@
               "minimum": 0,
               "default": 16,
               "description": "Depth below the ground where biome_underground starts."
+            },
+            "snow": {
+              "$ref": "#/$defs/snow",
+              "description": "Where snow and ice may form in this biome; overrides snow of map.json."
+            }
+          }
+        }
+      ]
+    },
+    "snow": {
+      "description": "Where snow layers and ice may form. Snow still needs a biome cold enough at that height: this only removes snow.",
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "true: snow wherever the biome is cold enough. false: no snow and no ice."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_y": {
+              "type": "integer",
+              "description": "Lowest Y with snow."
+            },
+            "max_y": {
+              "type": "integer",
+              "description": "Highest Y with snow."
             }
           }
         }

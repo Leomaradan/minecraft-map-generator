@@ -26,6 +26,7 @@ public record MapConfig(
         Spawn spawn,
         Blocks blocks,
         Decoration decoration,
+        Snow snow,
         VanillaStructures vanillaStructures
 ) {
     public static final int CURRENT_FORMAT = 1;
@@ -104,6 +105,47 @@ public record MapConfig(
     }
 
     /**
+     * Where snow layers and ice may form. It only removes snow: the biome must still be cold enough
+     * at that height (Minecraft's biomes get colder above {@code sea_level + 17}).
+     *
+     * @param minY lowest Y with snow, null for no limit
+     * @param maxY highest Y with snow, null for no limit
+     */
+    public record Snow(boolean enabled, Integer minY, Integer maxY) {
+        public static final Snow ALL = new Snow(true, null, null);
+        public static final Snow NONE = new Snow(false, null, null);
+
+        public boolean allows(int y) {
+            return this.enabled && (this.minY == null || y >= this.minY) && (this.maxY == null || y <= this.maxY);
+        }
+
+        /** {@code true}, {@code false} or {@code {"min_y", "max_y"}}; null when absent or invalid. */
+        static Snow parse(JsonObject parent, String key, String path, ValidationReport report) {
+            JsonElement e = parent.get(key);
+            if (e == null || e.isJsonNull()) {
+                return null;
+            }
+            String sp = path + "." + key;
+            if (e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()) {
+                return e.getAsBoolean() ? ALL : NONE;
+            }
+            if (!e.isJsonObject()) {
+                report.error(sp + " must be true, false or {\"min_y\": ..., \"max_y\": ...}");
+                return null;
+            }
+            JsonObject o = e.getAsJsonObject();
+            Json.checkKnownKeys(o, sp, report, "min_y", "max_y");
+            Integer minY = Json.integer(o, "min_y", null, sp, report);
+            Integer maxY = Json.integer(o, "max_y", null, sp, report);
+            if (minY != null && maxY != null && minY > maxY) {
+                report.error(sp + ".min_y must not be above max_y");
+                return null;
+            }
+            return new Snow(true, minY, maxY);
+        }
+    }
+
+    /**
      * Filter for vanilla (and modded) structures placed randomly. Ids may name a structure set
      * (e.g. {@code minecraft:villages}) or a single structure (e.g. {@code minecraft:village_plains}).
      *
@@ -126,7 +168,7 @@ public record MapConfig(
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
         Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
-                "biome_transition", "outside", "spawn", "blocks", "decoration", "vanilla_structures", "name", "description", "author", "$schema");
+                "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", "vanilla_structures", "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
         if (format > CURRENT_FORMAT) {
@@ -180,6 +222,8 @@ public record MapConfig(
             decoration = new Decoration(parseFeatures(decorationJson, dp, report), Json.bool(decorationJson, "carvers", true, dp, report));
         }
 
+        Snow snow = Snow.parse(root, "snow", p, report);
+
         VanillaStructures vanilla = VanillaStructures.ALL;
         boolean vanillaShorthand = root.has("vanilla_structures") && root.get("vanilla_structures").isJsonPrimitive();
         JsonObject vanillaJson = vanillaShorthand ? null : Json.object(root, "vanilla_structures", p, report);
@@ -195,7 +239,7 @@ public record MapConfig(
         }
 
         return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, biomeTransition, outside, spawn, blocks, decoration,
-                vanilla);
+                snow != null ? snow : Snow.ALL, vanilla);
     }
 
     /** {@code "features": true}, {@code false}, or {@code {"enabled", "disabled", "disabled_steps", "only"}}. */

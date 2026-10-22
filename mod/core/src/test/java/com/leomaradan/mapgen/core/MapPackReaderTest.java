@@ -394,6 +394,36 @@ class MapPackReaderTest {
     }
 
     @Test
+    void snowPerBiome() throws IOException {
+        // Columns 0-3: taiga with no snow below Y=100, mountain (from Y=62) snowy anywhere; columns 4-7: plains, map default.
+        byte[] biomes = TestPng.rgb(8, 4, (x, y, c) -> {
+            int rgb = x < 4 ? 0x00FF00 : 0xFFFF00;
+            return (rgb >> (16 - 8 * c)) & 0xFF;
+        });
+        MapPackReader.Result result = put("map.json", "{\"origin\": [0, 0], \"biome_transition\": 0, \"snow\": false}")
+                .put("heightmap.png", heightmap8(8, 4))
+                .put("biomes.png", biomes)
+                .put("biomes.json", """
+                        {"#00FF00": {"biome": "taiga", "snow": {"min_y": 100}, "biome_mountain": {"biome": "grove", "snow": true}, "mountain_y": 62},
+                         "#FFFF00": "plains"}
+                        """)
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        TerrainSampler s = result.pack().sampler();
+        assertFalse(s.allowsSnow(0, 99, 0), "taiga below min_y");
+        assertTrue(s.allowsSnow(0, 100, 0));
+        assertTrue(s.allowsSnow(2, 0, 0), "mountain: snow everywhere");
+        assertFalse(s.allowsSnow(5, 500, 0), "plains: snow of map.json");
+        assertFalse(s.allowsSnow(-10, 500, 0), "outside: snow of map.json");
+    }
+
+    @Test
+    void snowEverywhereByDefault() throws IOException {
+        TerrainSampler s = put("map.json", "{}").put("heightmap.png", heightmap8(4, 4)).read().pack().sampler();
+        assertTrue(s.allowsSnow(0, 1000, 0));
+    }
+
+    @Test
     void riversNeedABiomeMap() throws IOException {
         MapPackReader.Result result = put("map.json", "{\"origin\": [0, 0]}")
                 .put("heightmap.png", heightmap8(4, 4))
