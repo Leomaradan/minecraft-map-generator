@@ -183,7 +183,7 @@ public final class MapPackReader {
         if (report.hasErrors()) {
             return null;
         }
-        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes);
+        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes, biomeMapping);
         return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
                 Map.copyOf(templates), datapack, layout, sampler);
     }

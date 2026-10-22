@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/map.schema.json",
+  "title": "Map Generator map.json",
+  "description": "World configuration of a map ZIP. Every field is optional. See docs/FORMAT.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "resource_id": {
+      "type": "string",
+      "pattern": "^([a-z0-9_.-]+:)?[a-z0-9_./-]+$",
+      "description": "Resource id; without a namespace, minecraft: is used."
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "default": 1,
+      "description": "Format version of the map ZIP."
+    },
+    "name": {
+      "type": "string",
+      "description": "Name shown in the UI and logs. Defaults to the ZIP file name."
+    },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Paths inside the ZIP.",
+      "properties": {
+        "heightmap": {
+          "type": "string",
+          "default": "heightmap.png"
+        },
+        "biomes": {
+          "type": "string",
+          "default": "biomes.png"
+        },
+        "biome_mapping": {
+          "type": "string",
+          "default": "biomes.json"
+        },
+        "water": {
+          "type": "string",
+          "default": "water.png"
+        },
+        "lava": {
+          "type": "string",
+          "default": "lava.png"
+        },
+        "structures": {
+          "type": "string",
+          "default": "structures.json"
+        },
+        "datapack": {
+          "type": "string",
+          "default": "datapack/",
+          "description": "Folder of the embedded datapack; empty to disable."
+        }
+      }
+    },
+    "origin": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "World [X, Z] of pixel (0, 0). Centered on 0, 0 by default."
+    },
+    "horizontal_scale": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1024,
+      "default": 1,
+      "description": "Blocks per pixel."
+    },
+    "height": {
+      "description": "Pixel value to Y mapping.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_y": {
+              "type": "number"
+            },
+            "scale": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "description": "y = base_y + value * scale"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min_y",
+            "max_y"
+          ],
+          "properties": {
+            "min_y": {
+              "type": "number"
+            },
+            "max_y": {
+              "type": "number"
+            }
+          },
+          "description": "The full value range maps onto [min_y, max_y]."
+        }
+      ]
+    },
+    "dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Explicit world height (multiples of 16). Automatic by default.",
+      "properties": {
+        "min_y": {
+          "type": "integer",
+          "multipleOf": 16
+        },
+        "height": {
+          "type": "integer",
+          "multipleOf": 16
+        },
+        "max_y": {
+          "type": "integer",
+          "multipleOf": 16
+        }
+      },
+      "not": {
+        "required": [
+          "height",
+          "max_y"
+        ]
+      }
+    },
+    "sea_level": {
+      "type": "integer",
+      "default": 63,
+      "description": "Minecraft's sea level. Does not add water."
+    },
+    "biome_transition": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 64,
+      "default": 4,
+      "description": "Biome borders are shifted by up to this many blocks with a smooth noise, so they follow natural curves instead of pixel edges. 0 keeps the exact pixel borders."
+    },
+    "outside": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What is generated around the map.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "flat",
+            "void",
+            "extend"
+          ],
+          "default": "flat"
+        },
+        "ground_level": {
+          "type": "integer",
+          "default": 64
+        },
+        "water_level": {
+          "type": "integer",
+          "default": 63
+        },
+        "biome": {
+          "$ref": "#/$defs/resource_id",
+          "default": "minecraft:plains"
+        },
+        "border": {
+          "type": "boolean",
+          "default": true,
+          "description": "Put a world border around the map when the world is created (a square fitting the longest side, centered on the map)."
+        }
+      }
+    },
+    "spawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "z"
+      ],
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "z": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer",
+          "description": "Omit to spawn on the surface."
+        }
+      }
+    },
+    "blocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/resource_id",
+          "default": "minecraft:stone",
+          "description": "Block under the surface layers."
+        },
+        "bedrock": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "decoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "features": {
+          "default": true,
+          "description": "Biome features (trees, grass, ores, lakes...): true, false, or a filter.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "disabled": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/resource_id"
+                  },
+                  "description": "Placed features to skip, e.g. minecraft:lake_lava_surface."
+                },
+                "disabled_steps": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "raw_generation",
+                      "lakes",
+                      "local_modifications",
+                      "underground_structures",
+                      "surface_structures",
+                      "strongholds",
+                      "underground_ores",
+                      "underground_decoration",
+                      "fluid_springs",
+                      "vegetal_decoration",
+                      "top_layer_modification"
+                    ]
+                  },
+                  "description": "Generation steps to skip entirely, e.g. lakes."
+                },
+                "only": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/resource_id"
+                  },
+                  "description": "If set, only these placed features are generated."
+                }
+              }
+            }
+          ]
+        },
+        "carvers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Caves and ravines from the biomes."
+        }
+      }
+    },
+    "vanilla_structures": {
+      "default": true,
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "disabled": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/resource_id"
+              },
+              "description": "Structures or structure sets to turn off."
+            },
+            "only": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/resource_id"
+                  },
+                  "description": "If set, only these structures or structure sets are generated."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

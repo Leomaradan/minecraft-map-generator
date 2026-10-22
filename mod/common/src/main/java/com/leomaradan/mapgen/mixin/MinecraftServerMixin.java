@@ -39,12 +39,20 @@ public abstract class MinecraftServerMixin {
         packIds.forEach(MapPacks::get);
     }
 
-    /** Applies the spawn point of map.json once vanilla has picked one. */
+    /**
+     * When the world is created: puts the world border around the map, and applies the spawn
+     * point of map.json once vanilla has picked one. Without a spawn in map.json, a vanilla spawn
+     * outside the border moves to the center of the map.
+     */
     @Inject(method = "setInitialSpawn", at = @At("TAIL"))
     private static void mapgen$setSpawn(ServerLevel level, ServerLevelData levelData, boolean spawnBonusChest, boolean isDebug,
                                         LevelLoadListener levelLoadListener, CallbackInfo ci) {
         if (level.getChunkSource().getGenerator() instanceof MapChunkGenerator generator) {
+            boolean border = generator.configureWorldBorder(level.getWorldBorder());
             BlockPos spawn = generator.configuredSpawn(level);
+            if (spawn == null && border && !level.getWorldBorder().isWithinBounds(levelData.getRespawnData().pos())) {
+                spawn = generator.mapCenterSpawn(level);
+            }
             if (spawn != null) {
                 levelData.setSpawn(LevelData.RespawnData.of(level.dimension(), spawn, 0.0f, 0.0f));
             }

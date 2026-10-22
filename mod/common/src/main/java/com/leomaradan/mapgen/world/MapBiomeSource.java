@@ -18,9 +18,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * Biomes read from the biome map. {@code biomes} is aligned with the entries of the pack's biome
- * mapping (one holder per mapped color), so the biome ids are saved in level.dat and resolved
- * against the registry like any other worldgen setting.
+ * Biomes read from the biome map. {@code biomes} is aligned with the slots of the pack's biome
+ * mapping (one holder per mapped color, then one per substitute biome), so the biome ids are saved
+ * in level.dat and resolved against the registry like any other worldgen setting.
  */
 public final class MapBiomeSource extends BiomeSource {
     public static final MapCodec<MapBiomeSource> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
@@ -52,16 +52,48 @@ public final class MapBiomeSource extends BiomeSource {
 
     @Override
     public BiomeResolver createResolver(Climate.Sampler sampler) {
-        return (quartX, quartY, quartZ) -> this.biomeAt(QuartPos.toBlock(quartX), QuartPos.toBlock(quartZ));
+        return (quartX, quartY, quartZ) -> this.biomeAt(QuartPos.toBlock(quartX), QuartPos.toBlock(quartY), QuartPos.toBlock(quartZ));
     }
 
-    /** Biome at a block position (biomes don't vary with Y). */
+    /** Used for one chunk on one thread: the columns are sampled once and reused for every Y. */
+    @Override
+    public BiomeResolver createResolverForChunk(Climate.Sampler sampler, int minQuartX, int minQuartY, int minQuartZ, int maxQuartX, int maxQuartY,
+                                                int maxQuartZ) {
+        TerrainSampler s = this.sampler();
+        if (s == null) {
+            return (quartX, quartY, quartZ) -> this.outside;
+        }
+        TerrainSampler.Column[] columns = new TerrainSampler.Column[16];
+        long[] keys = new long[16];
+        return (quartX, quartY, quartZ) -> {
+            int slot = (quartX & 3) | (quartZ & 3) << 2;
+            long key = ((long) quartX << 32) | (quartZ & 0xFFFFFFFFL);
+            TerrainSampler.Column column = columns[slot];
+            if (column == null || keys[slot] != key) {
+                column = s.sample(QuartPos.toBlock(quartX), QuartPos.toBlock(quartZ), column == null ? new TerrainSampler.Column() : column);
+                columns[slot] = column;
+                keys[slot] = key;
+            }
+            return this.biomeForIndex(column.biomeAt(QuartPos.toBlock(quartY)));
+        };
+    }
+
+    /** Biome at the surface of a block position. */
     public Holder<Biome> biomeAt(int blockX, int blockZ) {
         TerrainSampler s = this.sampler();
         if (s == null) {
             return this.outside;
         }
         return this.biomeForIndex(s.biomeIndex(blockX, blockZ));
+    }
+
+    /** Biome at a block position (substitute underground biomes vary with Y). */
+    public Holder<Biome> biomeAt(int blockX, int blockY, int blockZ) {
+        TerrainSampler s = this.sampler();
+        if (s == null) {
+            return this.outside;
+        }
+        return this.biomeForIndex(s.biomeIndex(blockX, blockY, blockZ));
     }
 
     public Holder<Biome> biomeForIndex(int index) {
@@ -91,6 +123,6 @@ public final class MapBiomeSource extends BiomeSource {
 
     @Override
     public void addDebugInfo(List<String> result, BlockPos feetPos, Climate.Sampler sampler) {
-        result.add("MapGen biome index: " + (this.packId.isEmpty() ? "-" : this.sampler().biomeIndex(feetPos.getX(), feetPos.getZ())));
+        result.add("MapGen biome slot: " + (this.packId.isEmpty() ? "-" : this.sampler().biomeIndex(feetPos.getX(), feetPos.getY(), feetPos.getZ())));
     }
 }

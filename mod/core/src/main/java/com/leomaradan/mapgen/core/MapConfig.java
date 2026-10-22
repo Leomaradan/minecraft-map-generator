@@ -1,8 +1,10 @@
 package com.leomaradan.mapgen.core;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -19,6 +21,7 @@ public record MapConfig(
         HeightSpec height,
         Dimension dimension,
         int seaLevel,
+        int biomeTransition,
         Outside outside,
         Spawn spawn,
         Blocks blocks,
@@ -26,6 +29,9 @@ public record MapConfig(
         VanillaStructures vanillaStructures
 ) {
     public static final int CURRENT_FORMAT = 1;
+    /** Default {@code biome_transition}: biome borders are shifted by up to this many blocks. */
+    public static final int DEFAULT_BIOME_TRANSITION = 4;
+    public static final int MAX_BIOME_TRANSITION = 64;
 
     /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
     public record Files(String heightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
@@ -56,7 +62,8 @@ public record MapConfig(
         EXTEND
     }
 
-    public record Outside(OutsideMode mode, int groundLevel, int waterLevel, String biome) {
+    /** @param border put a world border around the map when the world is created */
+    public record Outside(OutsideMode mode, int groundLevel, int waterLevel, String biome, boolean border) {
     }
 
     public record Spawn(int x, int z, Integer y) {
@@ -65,7 +72,35 @@ public record MapConfig(
     public record Blocks(String defaultBlock, boolean bedrock) {
     }
 
-    public record Decoration(boolean features, boolean carvers) {
+    public record Decoration(Features features, boolean carvers) {
+    }
+
+    /**
+     * Filter for the biome features (placed features), by id or by generation step.
+     *
+     * @param disabledSteps generation steps to skip, e.g. {@code lakes}
+     * @param only          when non-null, only these features are placed
+     */
+    public record Features(boolean enabled, List<String> disabled, List<String> disabledSteps, List<String> only) {
+        public static final Features ALL = new Features(true, List.of(), List.of(), null);
+        public static final Features NONE = new Features(false, List.of(), List.of(), null);
+
+        /** Generation steps of Minecraft's biome features, in order. */
+        public static final List<String> STEPS = List.of("raw_generation", "lakes", "local_modifications", "underground_structures",
+                "surface_structures", "strongholds", "underground_ores", "underground_decoration", "fluid_springs", "vegetal_decoration",
+                "top_layer_modification");
+
+        public boolean allows(String featureId, String step) {
+            if (!this.enabled || this.disabledSteps.contains(step) || this.disabled.contains(featureId)) {
+                return false;
+            }
+            return this.only == null || this.only.contains(featureId);
+        }
+
+        /** True when no feature is filtered out individually (all or nothing). */
+        public boolean isUnfiltered() {
+            return this.disabled.isEmpty() && this.disabledSteps.isEmpty() && this.only == null;
+        }
     }
 
     /**
@@ -91,7 +126,7 @@ public record MapConfig(
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
         Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
-                "outside", "spawn", "blocks", "decoration", "vanilla_structures", "name", "description", "author");
+                "biome_transition", "outside", "spawn", "blocks", "decoration", "vanilla_structures", "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
         if (format > CURRENT_FORMAT) {
@@ -121,6 +156,11 @@ public record MapConfig(
         HeightSpec height = parseHeight(Json.object(root, "height", p, report), report);
         Dimension dimension = parseDimension(Json.object(root, "dimension", p, report), report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
+        int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
+        if (biomeTransition < 0 || biomeTransition > MAX_BIOME_TRANSITION) {
+            report.error("map.json.biome_transition must be between 0 and " + MAX_BIOME_TRANSITION);
+            biomeTransition = DEFAULT_BIOME_TRANSITION;
+        }
         Outside outside = parseOutside(Json.object(root, "outside", p, report), report);
         Spawn spawn = parseSpawn(Json.object(root, "spawn", p, report), report);
 
@@ -133,11 +173,11 @@ public record MapConfig(
         }
 
         JsonObject decorationJson = Json.object(root, "decoration", p, report);
-        Decoration decoration = new Decoration(true, true);
+        Decoration decoration = new Decoration(Features.ALL, true);
         if (decorationJson != null) {
             String dp = p + ".decoration";
             Json.checkKnownKeys(decorationJson, dp, report, "features", "carvers");
-            decoration = new Decoration(Json.bool(decorationJson, "features", true, dp, report), Json.bool(decorationJson, "carvers", true, dp, report));
+            decoration = new Decoration(parseFeatures(decorationJson, dp, report), Json.bool(decorationJson, "carvers", true, dp, report));
         }
 
         VanillaStructures vanilla = VanillaStructures.ALL;
@@ -154,7 +194,37 @@ public record MapConfig(
             vanilla = new VanillaStructures(Json.bool(root, "vanilla_structures", true, p, report), List.of(), null);
         }
 
-        return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, outside, spawn, blocks, decoration, vanilla);
+        return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, biomeTransition, outside, spawn, blocks, decoration,
+                vanilla);
+    }
+
+    /** {@code "features": true}, {@code false}, or {@code {"enabled", "disabled", "disabled_steps", "only"}}. */
+    private static Features parseFeatures(JsonObject decoration, String dp, ValidationReport report) {
+        if (!decoration.has("features") || decoration.get("features").isJsonPrimitive()) {
+            return Json.bool(decoration, "features", true, dp, report) ? Features.ALL : Features.NONE;
+        }
+        JsonObject json = Json.object(decoration, "features", dp, report);
+        if (json == null) {
+            return Features.ALL;
+        }
+        String fp = dp + ".features";
+        Json.checkKnownKeys(json, fp, report, "enabled", "disabled", "disabled_steps", "only");
+        List<String> disabled = Json.idList(json, "disabled", fp, report);
+        List<String> steps = new ArrayList<>();
+        JsonArray stepsJson = Json.array(json, "disabled_steps", fp, report);
+        if (stepsJson != null) {
+            for (int i = 0; i < stepsJson.size(); i++) {
+                JsonElement e = stepsJson.get(i);
+                String step = e.isJsonPrimitive() && e.getAsJsonPrimitive().isString() ? e.getAsString().toLowerCase(Locale.ROOT) : null;
+                if (step == null || !Features.STEPS.contains(step)) {
+                    report.error(fp + ".disabled_steps[" + i + "] must be one of " + String.join(", ", Features.STEPS));
+                } else {
+                    steps.add(step);
+                }
+            }
+        }
+        return new Features(Json.bool(json, "enabled", true, fp, report), disabled == null ? List.of() : disabled, List.copyOf(steps),
+                Json.idList(json, "only", fp, report));
     }
 
     private static Files parseFiles(JsonObject json, ValidationReport report) {
@@ -240,10 +310,10 @@ public record MapConfig(
 
     private static Outside parseOutside(JsonObject json, ValidationReport report) {
         if (json == null) {
-            return new Outside(OutsideMode.FLAT, 64, 63, "minecraft:plains");
+            return new Outside(OutsideMode.FLAT, 64, 63, "minecraft:plains", true);
         }
         String p = "map.json.outside";
-        Json.checkKnownKeys(json, p, report, "mode", "ground_level", "water_level", "biome");
+        Json.checkKnownKeys(json, p, report, "mode", "ground_level", "water_level", "biome", "border");
         String modeName = Json.string(json, "mode", "flat", p, report);
         OutsideMode mode;
         try {
@@ -255,7 +325,8 @@ public record MapConfig(
         return new Outside(mode,
                 Json.integer(json, "ground_level", 64, p, report),
                 Json.integer(json, "water_level", 63, p, report),
-                Json.id(json, "biome", "minecraft:plains", p, report));
+                Json.id(json, "biome", "minecraft:plains", p, report),
+                Json.bool(json, "border", true, p, report));
     }
 
     private static Spawn parseSpawn(JsonObject json, ValidationReport report) {

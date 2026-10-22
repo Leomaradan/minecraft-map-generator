@@ -40,13 +40,28 @@ public sealed interface StructureEntry {
 
     static List<StructureEntry> parseList(JsonElement root, String fileName, Set<String> zipEntries, ValidationReport report) {
         List<StructureEntry> result = new ArrayList<>();
-        if (!root.isJsonArray()) {
-            report.error(fileName + " must be a JSON array");
+        JsonArray array;
+        String arrayPath;
+        if (root.isJsonArray()) {
+            report.warn(fileName + " is a JSON array; this form is deprecated, use {\"structures\": [...]}");
+            array = root.getAsJsonArray();
+            arrayPath = fileName;
+        } else if (root.isJsonObject()) {
+            Json.checkKnownKeys(root.getAsJsonObject(), fileName, report, "$schema", "structures");
+            array = Json.array(root.getAsJsonObject(), "structures", fileName, report);
+            arrayPath = fileName + ".structures";
+            if (array == null) {
+                if (!root.getAsJsonObject().has("structures")) {
+                    report.error(fileName + ".structures is required");
+                }
+                return result;
+            }
+        } else {
+            report.error(fileName + " must be a JSON object: {\"structures\": [...]}");
             return result;
         }
-        JsonArray array = root.getAsJsonArray();
         for (int i = 0; i < array.size(); i++) {
-            String p = fileName + "[" + i + "]";
+            String p = arrayPath + "[" + i + "]";
             JsonElement e = array.get(i);
             if (!e.isJsonObject()) {
                 report.error(p + " must be an object");
