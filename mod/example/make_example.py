@@ -21,7 +21,7 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIZE = 256
-DATA_VERSION = 5023  # Minecraft 26.3
+DATA_VERSION = 4786  # Minecraft 26.1 (upgraded by 26.2)
 SCHEMAS = "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/"
 
 # ---------------------------------------------------------------------------------------------
@@ -233,7 +233,7 @@ def build(path, tall):
         z.writestr("biomes.json", json.dumps(BIOME_MAPPING, indent=2))
         z.writestr("structures.json", json.dumps(structures(), indent=2))
         z.writestr("structures/hut.nbt", hut_template())
-        z.writestr("datapack/pack.mcmeta", json.dumps({"pack": {"description": "Example Island biomes", "min_format": 121, "max_format": 121}}, indent=2))
+        z.writestr("datapack/pack.mcmeta", json.dumps({"pack": {"description": "Example Island biomes", "min_format": 101, "max_format": 107}}, indent=2))
         src = os.path.join(HERE, "src", "datapack")
         for root, _, files in os.walk(src):
             for name in files:
