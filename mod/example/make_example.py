@@ -24,7 +24,7 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIZE = 256
-DATA_VERSION = 4786  # Minecraft 26.1 (upgraded by 26.2)
+DATA_VERSION = 4786  # Minecraft 26.1: 26.2 and 26.3 upgrade it
 # The datapack works on Minecraft 26.1 (data pack format 101), 26.2 (107) and 26.3 (121). Its
 # files are in the 26.1/26.2 format; the mc26_3 overlay replaces them from format 121, where biome
 # mob spawns became the minecraft:gameplay/natural_mob_spawns attribute.
