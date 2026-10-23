@@ -1,6 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { solveFluids } from './fluids';
-import { resolveHeightMapping } from './heightMapping';
+import { resolveHeightMapping, toY } from './heightMapping';
 import { readNbtSize } from './nbt';
 import { decodeGrayPng, decodeRgbPng, encodeGrayPng, encodeRgbPng } from './png';
 import {
@@ -155,11 +155,24 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
     }
   }
   const fluidOf = new Map(project.bodies.map((b) => [b.id, b.fluid]));
+  // Lakes from an older editor have no surface Y: they were flat, so their exported level gives it.
+  const oldLakes = new Map(project.bodies.filter((b) => b.mode === 'lake' && b.level === undefined).map((b) => [b.id, 0]));
   for (let p = 0; p < n; p++) {
-    const f = fluidOf.get(project.fluidLabels[p]);
-    if (f === 'water') project.fluidRaw[p] = water ? water[p] : 0;
-    else if (f === 'lava') project.fluidRaw[p] = lava ? lava[p] : 0;
+    const id = project.fluidLabels[p];
+    const f = fluidOf.get(id);
+    const level = f === 'water' ? (water ? water[p] : 0) : f === 'lava' ? (lava ? lava[p] : 0) : 0;
+    project.fluidRaw[p] = level;
+    if (oldLakes.has(id)) oldLakes.set(id, Math.max(oldLakes.get(id)!, level));
   }
+  const heightMapping = resolveHeightMapping(config.height as never, bitDepth);
+  project.bodies = project.bodies.map((b) => {
+    const { levelOverride: _, ...body } = b as FluidBody & { levelOverride?: number };
+    const old = oldLakes.get(b.id);
+    if (old) return { ...body, level: toY(heightMapping, old) };
+    // Painted rivers of an older editor are free flows; rivers made of nodes have a node list
+    if (body.mode === 'river' && !body.nodes) return { ...body, mode: 'flow' as const };
+    return body;
+  });
 
   // Biomes
   const colorToEntry = new Map<string, BiomeEntry>();

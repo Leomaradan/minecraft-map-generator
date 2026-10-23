@@ -48,3 +48,34 @@ export function floodFill(start: number, width: number, height: number, accept: 
   }
   return out;
 }
+
+/** Pixel indexes inside a closed polygon (even-odd rule, pixel centers), plus the pixels of its outline. */
+export function polygon(points: { x: number; z: number }[], width: number, height: number): number[] {
+  if (points.length === 0) return [];
+  const seen = new Set<number>();
+  for (let i = 0; i < points.length; i++) {
+    for (const p of stroke(points[i], points[(i + 1) % points.length], 1, width, height)) seen.add(p);
+  }
+  const zs = points.map((p) => p.z);
+  const z0 = Math.max(0, Math.min(...zs));
+  const z1 = Math.min(height - 1, Math.max(...zs));
+  for (let z = z0; z <= z1; z++) {
+    const cy = z + 0.5;
+    const xs: number[] = [];
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const ay = a.z + 0.5;
+      const by = b.z + 0.5;
+      if ((ay <= cy) === (by <= cy)) continue;
+      xs.push(a.x + 0.5 + ((cy - ay) / (by - ay)) * (b.x - a.x));
+    }
+    xs.sort((u, v) => u - v);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const from = Math.max(0, Math.ceil(xs[i] - 0.5));
+      const to = Math.min(width - 1, Math.floor(xs[i + 1] - 0.5));
+      for (let x = from; x <= to; x++) seen.add(z * width + x);
+    }
+  }
+  return [...seen];
+}

@@ -11,18 +11,40 @@ export interface Raster {
 }
 
 export type Fluid = 'water' | 'lava';
-/** lake: flat at the lowest bank; river: smooth slope between the banks; raw: per-pixel levels kept from an import. */
-export type FluidMode = 'lake' | 'river' | 'raw';
+/**
+ * lake: the painted pixels are a zone, filled where the ground is below `level`;
+ * flow: painted freely, the surface slopes between the banks;
+ * river: a graph of nodes with a radius and a surface each, filled where the ground is below the surface;
+ * raw: read-only per-pixel levels kept from an import.
+ */
+export type FluidMode = 'lake' | 'flow' | 'river' | 'raw';
+
+export interface RiverNode {
+  id: number;
+  /** Map pixel. */
+  x: number;
+  z: number;
+  /** In map pixels (unset: interpolated along the links). */
+  radius?: number;
+  /** Surface Y, the top of a waterfall (unset: interpolated along the links). */
+  level?: number;
+  waterfall?: boolean;
+  /** Height of a waterfall in blocks. */
+  drop?: number;
+}
 
 export interface FluidBody {
   id: number;
   name: string;
   fluid: Fluid;
   mode: FluidMode;
-  /** Surface Y that replaces the computed level (lake and river). */
-  levelOverride?: number;
-  /** Blocks added to the computed level. */
+  /** Surface Y of a lake (unset: nothing is filled yet). */
+  level?: number;
+  /** Blocks added to the computed level of a free flow. */
   offset: number;
+  /** Nodes and links (pairs of node ids) of a river. */
+  nodes?: RiverNode[];
+  edges?: [number, number][];
 }
 
 export interface ReferenceImage {

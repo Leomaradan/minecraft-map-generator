@@ -15,8 +15,8 @@ interface Props {
   onDown?: (p: Pt, e: React.PointerEvent) => void;
   onMove?: (p: Pt, e: React.PointerEvent) => void;
   onUp?: () => void;
-  /** SVG content in pixel coordinates (1 unit = 1 pixel). */
-  markers?: ReactNode;
+  /** SVG content in pixel coordinates (1 unit = 1 pixel); a function gets the zoom (screen pixels per map pixel). */
+  markers?: ReactNode | ((zoom: number) => ReactNode);
   cursor?: string;
 }
 
@@ -181,7 +181,7 @@ export function MapView({ drawOverlay, overlayKey, overlayOpacity = 0.7, onDown,
             <img key={r.id} src={refUrls.get(r.bytes)} alt="" draggable={false} style={{ opacity: r.opacity }} />
           ))}
           {drawOverlay && <canvas ref={overlayCanvas} style={{ opacity: overlayOpacity }} />}
-          <svg width={hm.width} height={hm.height} viewBox={`0 0 ${hm.width} ${hm.height}`}>{markers}</svg>
+          <svg width={hm.width} height={hm.height} viewBox={`0 0 ${hm.width} ${hm.height}`}>{typeof markers === 'function' ? markers(view.k) : markers}</svg>
         </div>
       </div>
       <div className="statusbar">

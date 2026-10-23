@@ -51,3 +51,21 @@ a { color: var(--accent); }
 button.icon { padding: 0 4px; background: none; border: none; margin-left: 4px; }
 .list li > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nudge { display: grid; grid-template-columns: repeat(3, 28px); gap: 2px; margin: 4px 0; }
+.addgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; }
+.addgrid button { display: flex; align-items: center; gap: 6px; }
+.swatch.num { width: auto; min-width: 20px; height: 18px; padding: 0 4px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000; }
+.bodynum { fill: #fff; stroke: #000a; paint-order: stroke; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.bodynum.on { fill: #ffe14d; }
+.flow { fill: none; stroke: #fff; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 0.5px #000); }
+.lasso { fill: #ffffff22; stroke: #fff; stroke-linejoin: round; }
+.lasso.cut { fill: #ff5a5a22; stroke: var(--err); }
+.riverline { stroke: #ffffff66; stroke-linecap: round; }
+.riverline.on { stroke: #ffffffcc; }
+.rivernode { fill: #1f2528; stroke: #fff; }
+.rivernode.leaf { fill: #fff; }
+.rivernode.connector { fill: #5dbb4f; }
+.rivernode.waterfall { fill: #40c8d2; }
+.rivernode.on { stroke: #ffe14d; fill: #ffe14d; }
+.spawn { fill: #40e0ff55; stroke: #40e0ff; }
+.spawn path { fill: none; }
+.spawn.on { fill: #ffe14d55; stroke: #ffe14d; }

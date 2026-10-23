@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { exportZip, importZip } from './zipIO';
 
@@ -51,5 +51,39 @@ describe('editor-only data', () => {
     project.biomes[0].hidden = true;
     const files = unzipSync(exportZip(project));
     expect(Object.keys(JSON.parse(strFromU8(files['biomes.json']))).length).toBe(project.biomes.length + 1);
+  });
+});
+
+describe('fluid layers', () => {
+  it('imports the water and lava maps as read-only layers without editor.json', () => {
+    const { project } = importZip(example('example.zip'));
+    expect(project.bodies.map((b) => [b.fluid, b.mode])).toEqual([['water', 'raw'], ['lava', 'raw']]);
+  });
+
+  it('gives old flat lakes their exported level as surface', () => {
+    const { project } = importZip(example('example.zip'));
+    const files = unzipSync(exportZip(project));
+    const editor = JSON.parse(strFromU8(files['editor.json']));
+    // An older editor saved the lakes without a surface Y
+    editor.bodies = editor.bodies.map((b: object) => ({ ...b, mode: 'lake', levelOverride: 12 }));
+    files['editor.json'] = strToU8(JSON.stringify(editor));
+    const back = importZip(zipSync(files)).project;
+    const water = back.bodies.find((b) => b.fluid === 'water')!;
+    expect(water.mode).toBe('lake');
+    expect(water.level).toBeGreaterThan(0);
+    expect('levelOverride' in water).toBe(false);
+  });
+});
+
+describe('free flows', () => {
+  it('reads the painted rivers of an older editor as free flows, and keeps rivers made of nodes', () => {
+    const { project } = importZip(example('example.zip'));
+    project.bodies = [
+      { ...project.bodies[0], mode: 'river' },
+      { id: 990, name: 'River', fluid: 'water', mode: 'river', offset: 0, nodes: [{ id: 1, x: 3, z: 3, level: 70 }], edges: [] },
+    ];
+    const back = importZip(exportZip(project)).project;
+    expect(back.bodies.map((b) => b.mode)).toEqual(['flow', 'river']);
+    expect(back.bodies[1].nodes).toEqual([{ id: 1, x: 3, z: 3, level: 70 }]);
   });
 });
