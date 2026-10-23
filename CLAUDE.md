@@ -7,7 +7,7 @@ This file guides Claude Code (claude.ai/code) when it works in this repository.
 There are two products, both built around one **map ZIP format**. A map ZIP holds a heightmap, a
 biome map, water and lava maps, `map.json`, structures and an optional datapack.
 
-- `mod/`: a Minecraft 26.3 mod (Fabric and NeoForge) that adds a "Map from ZIP" world type.
+- `mod/`: a Minecraft 26.3 mod (Fabric and NeoForge) that adds a "Map from ZIP" world type. Minecraft 26.1 and 26.2 are built from the long-lived `mc/26.1-26.2` branch. Never merge that branch into `main`. Generator fixes are ported by hand in both directions, because 26.3 rewrote the world generation API. See that branch's CLAUDE.md for the differences.
 - `site/`: the GitHub Pages site. It has a landing page and a browser editor that creates and edits map ZIPs.
 - `docs/FORMAT.md` and `docs/schemas/*.schema.json`: the format spec. Both products depend on it.
 
