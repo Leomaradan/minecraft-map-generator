@@ -24,20 +24,11 @@ dimension).
 
 This is the `mc/26.1-26.2` branch. It builds one jar per Minecraft version and loader:
 
-| Jar | Runs on |
-|---|---|
-| `mapgen-<loader>-26.1-<version>.jar` | 26.1, 26.1.1, 26.1.2 |
-| `mapgen-<loader>-26.2-<version>.jar` | 26.2 |
-
-Minecraft 26.3 is built from the `main` branch: 26.3 rewrote the world generation API (density
-functions, carvers, structure starts, biome resolvers) and replaced GLFW with SDL3, so the
-generator code differs between the branches. The map ZIP format is the same, but a map's
-`datapack/` follows Minecraft's own format: custom biomes written for 26.3 (mob spawns as the
-`minecraft:gameplay/natural_mob_spawns` attribute) don't load on 26.1 or 26.2, which use the
-`spawners` and `spawn_costs` fields. A datapack can support both with an overlay, as the example
-maps do: their files are in the 26.1/26.2 format, and an `mc26_3` overlay (applied from data pack
-format 121) holds the 26.3 versions. The example ZIPs are the same on both branches and work on
-26.1, 26.2 and 26.3.
+The map ZIP format is the same for every version, but a map's `datapack/` follows Minecraft's own
+format: custom biomes written for 26.3 don't load on 26.1 or 26.2, and the other way round. A
+datapack can support both with an overlay, as the example maps do: their files are in the
+26.1/26.2 format, and an `mc26_3` overlay (applied from data pack format 121) holds the 26.3
+versions. The example ZIPs are the same on both branches and work on 26.1, 26.2 and 26.3.
 
 ## Mod loaders
 
