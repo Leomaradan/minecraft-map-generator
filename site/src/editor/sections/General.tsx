@@ -42,7 +42,7 @@ function GeneralPanel() {
   const hmInput = useRef<HTMLInputElement>(null);
 
   const height = useNested('height');
-  const dimension = useNested('dimension');
+  const dimension = useNested('dimension_parameter');
   const outside = useNested('outside');
   const spawn = useNested('spawn');
   const blocks = useNested('blocks');

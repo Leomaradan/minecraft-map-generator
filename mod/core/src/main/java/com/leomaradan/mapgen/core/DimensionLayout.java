@@ -38,11 +38,11 @@ public record DimensionLayout(int minY, int height) {
         int height = explicit.height() != null ? explicit.height() : autoMax - minY;
 
         if (explicit.minY() != null && minY % 16 != 0) {
-            report.error("map.json.dimension.min_y must be a multiple of 16");
+            report.error("map.json.dimension_parameter.min_y must be a multiple of 16");
             minY = floor16(minY);
         }
         if (explicit.height() != null && height % 16 != 0) {
-            report.error("map.json.dimension.height must be a multiple of 16");
+            report.error("map.json.dimension_parameter.height must be a multiple of 16");
             height = ceil16(height);
         }
         if (explicit.minY() == null && minY < LIMIT_MIN_Y) {
@@ -54,7 +54,7 @@ public record DimensionLayout(int minY, int height) {
             height = LIMIT_MAX_Y + 1 - minY;
         }
         if (minY < LIMIT_MIN_Y || height < 16 || height > LIMIT_HEIGHT || minY + height - 1 > LIMIT_MAX_Y) {
-            report.error("map.json.dimension: min_y=" + minY + " height=" + height + " is outside Minecraft limits (min_y >= "
+            report.error("map.json.dimension_parameter: min_y=" + minY + " height=" + height + " is outside Minecraft limits (min_y >= "
                     + LIMIT_MIN_Y + ", 16 <= height <= " + LIMIT_HEIGHT + ", min_y + height <= " + (LIMIT_MAX_Y + 1) + ")");
             return VANILLA;
         }

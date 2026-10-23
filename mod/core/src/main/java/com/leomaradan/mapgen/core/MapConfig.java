@@ -30,6 +30,17 @@ public record MapConfig(
         VanillaStructures vanillaStructures
 ) {
     public static final int CURRENT_FORMAT = 1;
+
+    /** Keys of {@code files} in map.json. */
+    public static final String FILE_HEIGHTMAP = "heightmap";
+    public static final String FILE_BIOMES = "biomes";
+    public static final String FILE_BIOME_MAPPING = "biome_mapping";
+    public static final String FILE_WATER = "water";
+    public static final String FILE_LAVA = "lava";
+    public static final String FILE_STRUCTURES = "structures";
+    private static final String KEY_HEIGHT = "height";
+    private static final String KEY_MIN_Y = "min_y";
+    private static final String KEY_MAX_Y = "max_y";
     /** Default {@code biome_transition}: biome borders are shifted by up to this many blocks. */
     public static final int DEFAULT_BIOME_TRANSITION = 4;
     public static final int MAX_BIOME_TRANSITION = 64;
@@ -40,7 +51,7 @@ public record MapConfig(
     private static final String VANILLA_STRUCTURES = "vanilla_structures";
 
     /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
-    public record Files(String heightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
+    public record Files(String heightmap, boolean explicitHeightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
                         String water, boolean explicitWater, String lava, boolean explicitLava,
                         String structures, boolean explicitStructures, String datapack) {
     }
@@ -206,9 +217,9 @@ public record MapConfig(
                 return null;
             }
             JsonObject o = e.getAsJsonObject();
-            Json.checkKnownKeys(o, sp, report, "min_y", "max_y");
-            Integer minY = Json.integer(o, "min_y", null, sp, report);
-            Integer maxY = Json.integer(o, "max_y", null, sp, report);
+            Json.checkKnownKeys(o, sp, report, KEY_MIN_Y, KEY_MAX_Y);
+            Integer minY = Json.integer(o, KEY_MIN_Y, null, sp, report);
+            Integer maxY = Json.integer(o, KEY_MAX_Y, null, sp, report);
             if (minY != null && maxY != null && minY > maxY) {
                 report.error(sp + ".min_y must not be above max_y");
                 return null;
@@ -239,7 +250,7 @@ public record MapConfig(
 
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
-        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
+        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", KEY_HEIGHT, "dimension_parameter", "sea_level",
                 "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
@@ -267,8 +278,8 @@ public record MapConfig(
             scale = 1.0;
         }
 
-        HeightSpec height = parseHeight(Json.object(root, "height", p, report), report);
-        Dimension dimension = parseDimension(Json.object(root, "dimension", p, report), report);
+        HeightSpec height = parseHeight(Json.object(root, KEY_HEIGHT, p, report), report);
+        Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
         int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
         if (biomeTransition < 0 || biomeTransition > MAX_BIOME_TRANSITION) {
@@ -330,15 +341,28 @@ public record MapConfig(
             json = new JsonObject();
         }
         String p = "map.json.files";
-        Json.checkKnownKeys(json, p, report, "heightmap", "biomes", "biome_mapping", "water", "lava", "structures", "datapack");
+        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, "datapack");
         return new Files(
-                Json.string(json, "heightmap", "heightmap.png", p, report),
-                Json.string(json, "biomes", "biomes.png", p, report), Json.has(json, "biomes"),
-                Json.string(json, "biome_mapping", "biomes.json", p, report), Json.has(json, "biome_mapping"),
-                Json.string(json, "water", "water.png", p, report), Json.has(json, "water"),
-                Json.string(json, "lava", "lava.png", p, report), Json.has(json, "lava"),
-                Json.string(json, "structures", "structures.json", p, report), Json.has(json, "structures"),
+                file(json, FILE_HEIGHTMAP, "heightmap.png", report), Json.has(json, FILE_HEIGHTMAP),
+                file(json, FILE_BIOMES, "biomes.png", report), Json.has(json, FILE_BIOMES),
+                file(json, FILE_BIOME_MAPPING, "biomes.json", report), Json.has(json, FILE_BIOME_MAPPING),
+                file(json, FILE_WATER, "water.png", report), Json.has(json, FILE_WATER),
+                file(json, FILE_LAVA, "lava.png", report), Json.has(json, FILE_LAVA),
+                file(json, FILE_STRUCTURES, "structures.json", report), Json.has(json, FILE_STRUCTURES),
                 normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
+    }
+
+    /** A file path inside the ZIP, with "/" separators and no leading slash. */
+    private static String file(JsonObject json, String key, String def, ValidationReport report) {
+        String path = Json.string(json, key, def, "map.json.files", report).replace('\\', '/');
+        while (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        if (path.isEmpty() || path.endsWith("/")) {
+            report.error("map.json.files." + key + " must be a file path inside the ZIP");
+            return def;
+        }
+        return path;
     }
 
     private static String normalizeFolder(String folder) {
@@ -354,11 +378,11 @@ public record MapConfig(
             return new HeightSpec(null, null, null, null);
         }
         String p = "map.json.height";
-        Json.checkKnownKeys(json, p, report, "base_y", "scale", "min_y", "max_y");
+        Json.checkKnownKeys(json, p, report, "base_y", "scale", KEY_MIN_Y, KEY_MAX_Y);
         Double baseY = Json.number(json, "base_y", null, p, report);
         Double scale = Json.number(json, "scale", null, p, report);
-        Double minY = Json.number(json, "min_y", null, p, report);
-        Double maxY = Json.number(json, "max_y", null, p, report);
+        Double minY = Json.number(json, KEY_MIN_Y, null, p, report);
+        Double maxY = Json.number(json, KEY_MAX_Y, null, p, report);
         boolean linear = baseY != null || scale != null;
         boolean range = minY != null || maxY != null;
         if (linear && range) {
@@ -390,11 +414,11 @@ public record MapConfig(
         if (json == null) {
             return new Dimension(null, null);
         }
-        String p = "map.json.dimension";
-        Json.checkKnownKeys(json, p, report, "min_y", "height", "max_y");
-        Integer minY = Json.integer(json, "min_y", null, p, report);
-        Integer height = Json.integer(json, "height", null, p, report);
-        Integer maxY = Json.integer(json, "max_y", null, p, report);
+        String p = "map.json.dimension_parameter";
+        Json.checkKnownKeys(json, p, report, KEY_MIN_Y, KEY_HEIGHT, KEY_MAX_Y);
+        Integer minY = Json.integer(json, KEY_MIN_Y, null, p, report);
+        Integer height = Json.integer(json, KEY_HEIGHT, null, p, report);
+        Integer maxY = Json.integer(json, KEY_MAX_Y, null, p, report);
         if (maxY != null) {
             if (height != null) {
                 report.error(p + ": use either height or max_y, not both");

@@ -80,7 +80,84 @@ class MapPackReaderTest {
         this.files.clear();
         MapPackReader.Result noHeightmap = put("map.json", "{}").read();
         assertFalse(noHeightmap.ok());
-        assertTrue(anyContains(noHeightmap.report().errors(), "heightmap.png is not in the ZIP"));
+        assertTrue(anyContains(noHeightmap.report().errors(), "the ZIP has no heightmap: add heightmap.png"));
+    }
+
+    @Test
+    void readsImagesUnderCustomNames() throws IOException {
+        MapPackReader.Result result = put("map.json", """
+                {"files": {"heightmap": "maps/terrain.png", "water": "/maps\\\\sea.png", "lava": "maps/magma.png",
+                           "biomes": "maps/regions.png", "biome_mapping": "maps/regions.json"}}
+                """)
+                .put("maps/terrain.png", heightmap8(4, 4))
+                .put("maps/sea.png", TestPng.gray(4, 4, 8, (x, y, c) -> x == 0 ? 80 : 0))
+                .put("maps/magma.png", TestPng.gray(4, 4, 8, (x, y, c) -> x == 3 ? 90 : 0))
+                .put("maps/regions.png", TestPng.rgb(4, 4, (x, y, c) -> c == 1 ? 255 : 0))
+                .put("maps/regions.json", "{\"#00FF00\": \"forest\"}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        MapPack pack = result.pack();
+        assertNotNull(pack.water());
+        assertNotNull(pack.lava());
+        assertNotNull(pack.biomes());
+        assertEquals("maps/sea.png", pack.config().files().water());
+        TerrainSampler.Column column = pack.sampler().sample(-2, 0, new TerrainSampler.Column());
+        assertEquals(80, column.waterY);
+    }
+
+    @Test
+    void defaultNamesAreIgnoredWhenOtherNamesAreGiven() throws IOException {
+        // water.png is not read when map.json names another water map
+        MapPackReader.Result result = put("map.json", "{\"files\": {\"heightmap\": \"terrain.png\", \"water\": \"sea.png\"}}")
+                .put("terrain.png", heightmap8(4, 4))
+                .put("sea.png", TestPng.gray(4, 4, 8, (x, y, c) -> 0))
+                .put("water.png", TestPng.gray(4, 4, 16, (x, y, c) -> 0))
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+    }
+
+    @Test
+    void reportsMissingCustomNamedFiles() throws IOException {
+        MapPackReader.Result noHeightmap = put("map.json", "{\"files\": {\"heightmap\": \"terrain.png\"}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .read();
+        assertFalse(noHeightmap.ok());
+        assertTrue(anyContains(noHeightmap.report().errors(), "terrain.png is not in the ZIP (named by \"files\": {\"heightmap\"}"),
+                noHeightmap.report().toString());
+
+        this.files.clear();
+        MapPackReader.Result missing = put("map.json", "{\"files\": {\"water\": \"sea.png\", \"lava\": \"magma.png\", \"biomes\": \"regions.png\"}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .read();
+        assertFalse(missing.ok());
+        assertTrue(anyContains(missing.report().errors(), "sea.png is not in the ZIP"));
+        assertTrue(anyContains(missing.report().errors(), "magma.png is not in the ZIP"));
+        assertTrue(anyContains(missing.report().errors(), "regions.png is not in the ZIP"));
+    }
+
+    @Test
+    void rejectsEmptyFileNames() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"files\": {\"heightmap\": \"\"}}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertFalse(result.ok());
+        assertTrue(anyContains(result.report().errors(), "map.json.files.heightmap must be a file path"));
+    }
+
+    @Test
+    void readsDimensionParameter() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"dimension_parameter\": {\"min_y\": -128, \"height\": 512}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        assertEquals(new DimensionLayout(-128, 512), result.pack().layout());
+
+        this.files.clear();
+        MapPackReader.Result invalid = put("map.json", "{\"dimension_parameter\": {\"min_y\": -60}}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertFalse(invalid.ok());
+        assertTrue(anyContains(invalid.report().errors(), "map.json.dimension_parameter.min_y must be a multiple of 16"));
+
+        this.files.clear();
+        MapPackReader.Result old = put("map.json", "{\"dimension\": {\"min_y\": -128}}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(anyContains(old.report().warnings(), "unknown key \"dimension\""));
     }
 
     @Test
