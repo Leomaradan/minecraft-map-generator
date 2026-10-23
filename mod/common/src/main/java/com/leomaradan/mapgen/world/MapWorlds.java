@@ -48,6 +48,7 @@ public final class MapWorlds {
     private static final String NETHER_TYPE_TEMPLATE = "/mapgen/the_nether_dimension_type.json";
     private static final String END_TYPE_TEMPLATE = "/mapgen/the_end_dimension_type.json";
     private static final String LOGICAL_HEIGHT = "logical_height";
+    private static final String HEIGHT = "height";
     private static final String DOES_NOT_EXIST = " does not exist";
 
     private MapWorlds() {
@@ -286,17 +287,7 @@ public final class MapWorlds {
             int logical = target.isOverworld() ? layout.height() : Math.min(json.get(LOGICAL_HEIGHT).getAsInt(), layout.height());
             setHeight(json, layout, logical);
         } else if (target.custom() && target.sizedToMap()) {
-            json = readTemplate(OVERWORLD_TYPE_TEMPLATE);
-            setHeight(json, layout, layout.height());
-            if (target.type() != null) {
-                for (Map.Entry<String, JsonElement> field : target.type().getAsJsonObject().entrySet()) {
-                    json.add(field.getKey(), field.getValue().deepCopy());
-                }
-                // A type setting its own height keeps a logical height within it.
-                if (json.get(LOGICAL_HEIGHT).getAsInt() > json.get("height").getAsInt()) {
-                    json.add(LOGICAL_HEIGHT, json.get("height").deepCopy());
-                }
-            }
+            json = customTypeJson(target, layout);
         } else {
             return null;
         }
@@ -304,9 +295,25 @@ public final class MapWorlds {
         return new GsonBuilder().setPrettyPrinting().create().toJson(json);
     }
 
+    /** The type of a new dimension: the overworld's sized to the map, with the fields of an inline {@code parameters.type}. */
+    private static JsonObject customTypeJson(MapConfig.DimensionTarget target, DimensionLayout layout) throws IOException {
+        JsonObject json = readTemplate(OVERWORLD_TYPE_TEMPLATE);
+        setHeight(json, layout, layout.height());
+        if (target.type() != null) {
+            for (Map.Entry<String, JsonElement> field : target.type().getAsJsonObject().entrySet()) {
+                json.add(field.getKey(), field.getValue().deepCopy());
+            }
+            // A type setting its own height keeps a logical height within it.
+            if (json.get(LOGICAL_HEIGHT).getAsInt() > json.get(HEIGHT).getAsInt()) {
+                json.add(LOGICAL_HEIGHT, json.get(HEIGHT).deepCopy());
+            }
+        }
+        return json;
+    }
+
     private static void setHeight(JsonObject json, DimensionLayout layout, int logicalHeight) {
         json.addProperty("min_y", layout.minY());
-        json.addProperty("height", layout.height());
+        json.addProperty(HEIGHT, layout.height());
         json.addProperty(LOGICAL_HEIGHT, logicalHeight);
     }
 

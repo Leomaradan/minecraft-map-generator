@@ -109,7 +109,7 @@ public record MapConfig(
         /** Whether an inline {@code parameters.type} sets the height itself (then the map is not sized to it). */
         public boolean typeSetsHeight() {
             return this.type != null && this.type.isJsonObject()
-                    && (this.type.getAsJsonObject().has("min_y") || this.type.getAsJsonObject().has("height"));
+                    && (this.type.getAsJsonObject().has(KEY_MIN_Y) || this.type.getAsJsonObject().has(KEY_HEIGHT));
         }
 
         /** The dimension type id given by {@code parameters.type}, or null. */
