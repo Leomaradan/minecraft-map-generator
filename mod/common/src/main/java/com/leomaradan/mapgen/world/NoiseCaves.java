@@ -23,6 +23,8 @@ import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.jspecify.annotations.Nullable;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * Minecraft's noise caves (large "cheese" caverns, spaghetti and noodle caves, cave entrances,
  * pillars), dug into the map's terrain.
@@ -39,6 +41,7 @@ import org.jspecify.annotations.Nullable;
 public final class NoiseCaves {
     private static final int CELL_XZ = 4;
     private static final int CELL_Y = 8;
+    private static final int CORNERS_XZ = 16 / CELL_XZ + 1;
     /** Vanilla's sloped_cheese grows by about 1 every 32 blocks of depth. */
     private static final float DEPTH_SCALE = 32.0f;
     /** Below this "sloped cheese", only entrances (and noodles) dig: no caverns near the surface. */
@@ -56,7 +59,7 @@ public final class NoiseCaves {
     private static final int COMPONENTS = 5;
 
     /** Registries of the running server, set when its levels are created. */
-    private static volatile @Nullable RegistryAccess registries;
+    private static final AtomicReference<@Nullable RegistryAccess> REGISTRIES = new AtomicReference<>();
 
     private final DensityFunction[] functions;
 
@@ -66,12 +69,12 @@ public final class NoiseCaves {
 
     /** Called when a server creates its levels (and with null when it stops). */
     public static void setRegistries(@Nullable RegistryAccess access) {
-        registries = access;
+        REGISTRIES.set(access);
     }
 
     /** The cave functions, or null when the registries are not available (no server running). */
     static @Nullable NoiseCaves create() {
-        RegistryAccess access = registries;
+        RegistryAccess access = REGISTRIES.get();
         if (access == null) {
             return null;
         }
@@ -109,10 +112,41 @@ public final class NoiseCaves {
 
     /** Digs the caves of one chunk. */
     void carve(ChunkAccess chunk, RandomState randomState, Columns columns) {
-        ChunkPos pos = chunk.getPos();
         int minY = chunk.getMinY();
-        int[] terrain = new int[256];
+        int[] terrain = cavesTops(chunk, columns);
         int highest = Integer.MIN_VALUE;
+        for (int top : terrain) {
+            highest = Math.max(highest, top);
+        }
+        if (highest <= minY + 1) {
+            return;
+        }
+        // Component values at the cell corners, from the bottom of the world to the highest terrain.
+        int cellsY = Math.floorDiv(highest - minY, CELL_Y) + 1;
+        float[][] corners = this.sampleCorners(chunk.getPos(), minY, cellsY, randomState);
+
+        ChunkPos pos = chunk.getPos();
+        BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
+        float[] value = new float[COMPONENTS];
+        for (int dx = 0; dx < 16; dx++) {
+            for (int dz = 0; dz < 16; dz++) {
+                int top = terrain[dx * 16 + dz];
+                for (int y = minY + 1; y <= top; y++) {
+                    for (int c = 0; c < COMPONENTS; c++) {
+                        value[c] = interpolate(corners[c], cellsY, dx, y - minY, dz);
+                    }
+                    if (density(value, top - y) < 0) {
+                        carveBlock(chunk, blockPos.set(pos.getBlockX(dx), y, pos.getBlockZ(dz)));
+                    }
+                }
+            }
+        }
+    }
+
+    /** Highest block of each column where caves may be dug (below the ground, and deeper next to the map's fluids). */
+    private static int[] cavesTops(ChunkAccess chunk, Columns columns) {
+        ChunkPos pos = chunk.getPos();
+        int[] terrain = new int[256];
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
                 int x = pos.getBlockX(dx);
@@ -122,51 +156,32 @@ public final class NoiseCaves {
                     top -= FLUID_COVER;
                 }
                 terrain[dx * 16 + dz] = Math.min(top, chunk.getMaxY());
-                highest = Math.max(highest, terrain[dx * 16 + dz]);
             }
         }
-        if (highest <= minY + 1) {
-            return;
-        }
+        return terrain;
+    }
 
-        // Component values at the cell corners, from the bottom of the world to the highest terrain.
-        int cellsY = Math.floorDiv(highest - minY, CELL_Y) + 1;
-        int cornersXz = 16 / CELL_XZ + 1;
-        float[][] corners = new float[COMPONENTS][cornersXz * cornersXz * (cellsY + 1)];
+    /** Samples every component at the corners of the cells of a chunk. */
+    private float[][] sampleCorners(ChunkPos pos, int minY, int cellsY, RandomState randomState) {
+        float[][] corners = new float[COMPONENTS][CORNERS_XZ * CORNERS_XZ * (cellsY + 1)];
         SamplerContext context = SamplerContext.builder().enableCaches().build();
         for (int c = 0; c < COMPONENTS; c++) {
             DensitySampler.Bound sampler = randomState.getSampler(this.functions[c]).bind(context);
-            float[] values = corners[c];
-            for (int cx = 0; cx < cornersXz; cx++) {
-                for (int cz = 0; cz < cornersXz; cz++) {
-                    for (int cy = 0; cy <= cellsY; cy++) {
-                        values[(cx * cornersXz + cz) * (cellsY + 1) + cy] = sampler.sampleValue(pos.getMinBlockX() + cx * CELL_XZ,
-                                minY + cy * CELL_Y, pos.getMinBlockZ() + cz * CELL_XZ);
-                    }
-                }
+            for (int i = 0; i < corners[c].length; i++) {
+                int cy = i % (cellsY + 1);
+                int cz = i / (cellsY + 1) % CORNERS_XZ;
+                int cx = i / (cellsY + 1) / CORNERS_XZ;
+                corners[c][i] = sampler.sampleValue(pos.getMinBlockX() + cx * CELL_XZ, minY + cy * CELL_Y, pos.getMinBlockZ() + cz * CELL_XZ);
             }
         }
+        return corners;
+    }
 
-        BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
-        float[] value = new float[COMPONENTS];
-        for (int dx = 0; dx < 16; dx++) {
-            for (int dz = 0; dz < 16; dz++) {
-                int top = terrain[dx * 16 + dz];
-                for (int y = minY + 1; y <= top; y++) {
-                    for (int c = 0; c < COMPONENTS; c++) {
-                        value[c] = interpolate(corners[c], cornersXz, cellsY, dx, y - minY, dz);
-                    }
-                    if (density(value, top - y) >= 0) {
-                        continue;
-                    }
-                    blockPos.set(pos.getBlockX(dx), y, pos.getBlockZ(dz));
-                    BlockState state = chunk.getBlockState(blockPos);
-                    if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty()) {
-                        continue;
-                    }
-                    chunk.setBlockState(blockPos, y < minY + LAVA_DEPTH ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
-                }
-            }
+    /** Turns a block into a cave, unless it is air, a fluid or uncarvable. */
+    private static void carveBlock(ChunkAccess chunk, BlockPos pos) {
+        BlockState state = chunk.getBlockState(pos);
+        if (!state.isAir() && !state.is(BlockTags.UNCARVABLE) && state.getFluidState().isEmpty()) {
+            chunk.setBlockState(pos, pos.getY() < chunk.getMinY() + LAVA_DEPTH ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
         }
     }
 
@@ -188,7 +203,7 @@ public final class NoiseCaves {
     }
 
     /** Trilinear interpolation of a corner grid at a block of the chunk ({@code ry} from the bottom of the world). */
-    private static float interpolate(float[] values, int cornersXz, int cellsY, int dx, int ry, int dz) {
+    private static float interpolate(float[] values, int cellsY, int dx, int ry, int dz) {
         int cx = dx / CELL_XZ;
         int cz = dz / CELL_XZ;
         int cy = ry / CELL_Y;
@@ -196,11 +211,11 @@ public final class NoiseCaves {
         float tz = (dz % CELL_XZ) / (float) CELL_XZ;
         float ty = (ry % CELL_Y) / (float) CELL_Y;
         int stride = cellsY + 1;
-        int i000 = (cx * cornersXz + cz) * stride + cy;
-        int i100 = ((cx + 1) * cornersXz + cz) * stride + cy;
-        int i010 = (cx * cornersXz + cz + 1) * stride + cy;
-        int i110 = ((cx + 1) * cornersXz + cz + 1) * stride + cy;
-        return (float) Mth.lerp3(tx, ty, tz,
+        int i000 = (cx * CORNERS_XZ + cz) * stride + cy;
+        int i100 = ((cx + 1) * CORNERS_XZ + cz) * stride + cy;
+        int i010 = (cx * CORNERS_XZ + cz + 1) * stride + cy;
+        int i110 = ((cx + 1) * CORNERS_XZ + cz + 1) * stride + cy;
+        return Mth.lerp3(tx, ty, tz,
                 values[i000], values[i100], values[i000 + 1], values[i100 + 1],
                 values[i010], values[i110], values[i010 + 1], values[i110 + 1]);
     }

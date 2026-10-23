@@ -77,6 +77,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 
@@ -98,7 +99,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     private final MapSettings settings;
     private volatile Loaded loaded;
     /** Vanilla's cave functions, built once the server's registries are known. */
-    private volatile @Nullable NoiseCaves noiseCaves;
+    private final AtomicReference<@Nullable NoiseCaves> noiseCaves = new AtomicReference<>();
 
     /**
      * Pack data resolved on first use (the pack is only available once the server runs). The
@@ -387,10 +388,10 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     private @Nullable NoiseCaves noiseCaves() {
-        NoiseCaves caves = this.noiseCaves;
+        NoiseCaves caves = this.noiseCaves.get();
         if (caves == null) {
             caves = NoiseCaves.create();
-            this.noiseCaves = caves;
+            this.noiseCaves.set(caves);
         }
         return caves;
     }
@@ -694,27 +695,37 @@ public final class MapChunkGenerator extends ChunkGenerator {
             if (existing != null && existing.isValid()) {
                 continue;
             }
-            Climate.Sampler climate = state.randomState().createClimateSampler(SamplerContext.builder().enableCaches().build());
-            StructureStart start = StructureStart.INVALID_START;
-            List<StructureAttempt> attempts = StructureAttempt.list(entry.retries());
-            for (int i = 0; i < attempts.size() && !start.isValid(); i++) {
-                StructureAttempt attempt = attempts.get(i);
-                ChunkPos source = new ChunkPos(chunkPos.x() + attempt.dx(), chunkPos.z() + attempt.dz());
-                start = structure.generate(holder.get(), level, registryAccess, this, this.biomeSource, climate, state.randomState(),
-                        structureTemplateManager, state.getLevelSeed() + attempt.seedOffset(), source, 0, centerChunk, biome -> true);
-                if (start.isValid() && i > 0) {
-                    MapGen.LOG.info("[{}] Structure {} at {}, {} generated on retry {} (moved by {}, {} chunks)", l.pack.name(), entry.id(),
-                            entry.x(), entry.z(), i, attempt.dx(), attempt.dz());
-                }
-            }
+            StructureStart start = this.generateWithRetries(l, entry, holder.get(), registryAccess, state, centerChunk, structureTemplateManager, level);
             if (start.isValid()) {
                 // Stored in the entry's chunk even when generated from a neighbor: references follow the pieces' bounds.
                 structureManager.setStartForStructure(structure, start, centerChunk);
-            } else {
-                MapGen.LOG.warn("[{}] Structure {} could not be generated at {}, {} ({} attempts)", l.pack.name(), entry.id(), entry.x(),
-                        entry.z(), attempts.size());
             }
         }
+    }
+
+    /** Generates a structure of structures.json, trying other seeds and nearby chunks when it fails. */
+    private StructureStart generateWithRetries(Loaded l, StructureEntry.Structure entry, Holder<Structure> holder, RegistryAccess registryAccess,
+                                               ChunkGeneratorStructureState state, ChunkAccess centerChunk,
+                                               StructureTemplateManager structureTemplateManager, ResourceKey<Level> level) {
+        ChunkPos chunkPos = centerChunk.getPos();
+        Climate.Sampler climate = state.randomState().createClimateSampler(SamplerContext.builder().enableCaches().build());
+        List<StructureAttempt> attempts = StructureAttempt.list(entry.retries());
+        for (int i = 0; i < attempts.size(); i++) {
+            StructureAttempt attempt = attempts.get(i);
+            ChunkPos source = new ChunkPos(chunkPos.x() + attempt.dx(), chunkPos.z() + attempt.dz());
+            StructureStart start = holder.value().generate(holder, level, registryAccess, this, this.biomeSource, climate, state.randomState(),
+                    structureTemplateManager, state.getLevelSeed() + attempt.seedOffset(), source, 0, centerChunk, biome -> true);
+            if (start.isValid()) {
+                if (i > 0) {
+                    MapGen.LOG.info("[{}] Structure {} at {}, {} generated on retry {} (moved by {}, {} chunks)", l.pack.name(), entry.id(),
+                            entry.x(), entry.z(), i, attempt.dx(), attempt.dz());
+                }
+                return start;
+            }
+        }
+        MapGen.LOG.warn("[{}] Structure {} could not be generated at {}, {} ({} attempts)", l.pack.name(), entry.id(), entry.x(), entry.z(),
+                attempts.size());
+        return StructureStart.INVALID_START;
     }
 
     /**

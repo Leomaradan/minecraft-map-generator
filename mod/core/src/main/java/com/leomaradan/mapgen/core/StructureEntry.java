@@ -145,60 +145,77 @@ public sealed interface StructureEntry {
             return null;
         }
         if ("template".equals(type)) {
-            Json.checkKnownKeys(o, p, report, "type", "path", "x", "y", "z", "y_offset", "rotation", "mirror", "entities");
-            String path = Json.string(o, "path", null, p, report);
-            if (path == null) {
-                report.error(p + ".path is required for a template");
-                return null;
-            }
-            path = path.replace('\\', '/');
-            while (path.startsWith("/")) {
-                path = path.substring(1);
-            }
-            if (!path.endsWith(".nbt")) {
-                report.error(p + ".path must point to a structure template (.nbt file)");
-                return null;
-            }
-            if (!zipEntries.contains(path)) {
-                report.error(p + ": \"" + path + "\" is not in the ZIP");
-                return null;
-            }
-            Integer y = null;
-            JsonElement yJson = o.get("y");
-            if (yJson != null && !yJson.isJsonNull()) {
-                if (yJson.isJsonPrimitive() && yJson.getAsJsonPrimitive().isString() && "surface".equalsIgnoreCase(yJson.getAsString())) {
-                    y = null;
-                } else {
-                    y = Json.asInt(yJson);
-                    if (y == null) {
-                        report.error(p + ".y must be an integer or \"surface\"");
-                        return null;
-                    }
-                }
-            }
-            Rotation rotation = enumValue(Rotation.class, Json.string(o, "rotation", "none", p, report), p + ".rotation", report);
-            Mirror mirror = enumValue(Mirror.class, Json.string(o, "mirror", "none", p, report), p + ".mirror", report);
-            if (rotation == null || mirror == null) {
-                return null;
-            }
-            return new Template(path, x, y, Json.integer(o, "y_offset", 0, p, report), z, rotation, mirror, Json.bool(o, "entities", true, p, report));
+            return parseTemplate(o, p, x, z, zipEntries, report);
         }
         if ("structure".equals(type)) {
-            Json.checkKnownKeys(o, p, report, "type", "id", "fallback_id", "x", "z", "retries");
-            String id = Json.id(o, "id", null, p, report);
-            if (id == null) {
-                report.error(p + ".id is required for a structure");
-                return null;
-            }
-            int retries = Json.integer(o, "retries", Structure.DEFAULT_RETRIES, p, report);
-            if (retries < 0 || retries > Structure.MAX_RETRIES) {
-                report.error(p + ".retries must be between 0 and " + Structure.MAX_RETRIES);
-                retries = Structure.DEFAULT_RETRIES;
-            }
-            return new Structure(id, Json.id(o, "fallback_id", null, p, report), x, z, retries);
+            return parseStructure(o, p, x, z, report);
         }
         report.error(p + ".type must be \"template\" or \"structure\"");
         return null;
+    }
+
+    private static StructureEntry parseTemplate(JsonObject o, String p, int x, int z, Set<String> zipEntries, ValidationReport report) {
+        Json.checkKnownKeys(o, p, report, "type", "path", "x", "y", "z", "y_offset", "rotation", "mirror", "entities");
+        String path = templatePath(o, p, zipEntries, report);
+        if (path == null) {
+            return null;
+        }
+        Integer y = null;
+        JsonElement yJson = o.get("y");
+        if (yJson != null && !yJson.isJsonNull()) {
+            if (yJson.isJsonPrimitive() && yJson.getAsJsonPrimitive().isString() && "surface".equalsIgnoreCase(yJson.getAsString())) {
+                y = null;
+            } else {
+                y = Json.asInt(yJson);
+                if (y == null) {
+                    report.error(p + ".y must be an integer or \"surface\"");
+                    return null;
+                }
+            }
+        }
+        Rotation rotation = enumValue(Rotation.class, Json.string(o, "rotation", "none", p, report), p + ".rotation", report);
+        Mirror mirror = enumValue(Mirror.class, Json.string(o, "mirror", "none", p, report), p + ".mirror", report);
+        if (rotation == null || mirror == null) {
+            return null;
+        }
+        return new Template(path, x, y, Json.integer(o, "y_offset", 0, p, report), z, rotation, mirror, Json.bool(o, "entities", true, p, report));
+    }
+
+    /** The template's path in the ZIP, or null (reported) when it is missing or invalid. */
+    private static String templatePath(JsonObject o, String p, Set<String> zipEntries, ValidationReport report) {
+        String path = Json.string(o, "path", null, p, report);
+        if (path == null) {
+            report.error(p + ".path is required for a template");
+            return null;
+        }
+        path = path.replace('\\', '/');
+        while (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        if (!path.endsWith(".nbt")) {
+            report.error(p + ".path must point to a structure template (.nbt file)");
+            return null;
+        }
+        if (!zipEntries.contains(path)) {
+            report.error(p + ": \"" + path + "\" is not in the ZIP");
+            return null;
+        }
+        return path;
+    }
+
+    private static StructureEntry parseStructure(JsonObject o, String p, int x, int z, ValidationReport report) {
+        Json.checkKnownKeys(o, p, report, "type", "id", "fallback_id", "x", "z", "retries");
+        String id = Json.id(o, "id", null, p, report);
+        if (id == null) {
+            report.error(p + ".id is required for a structure");
+            return null;
+        }
+        int retries = Json.integer(o, "retries", Structure.DEFAULT_RETRIES, p, report);
+        if (retries < 0 || retries > Structure.MAX_RETRIES) {
+            report.error(p + ".retries must be between 0 and " + Structure.MAX_RETRIES);
+            retries = Structure.DEFAULT_RETRIES;
+        }
+        return new Structure(id, Json.id(o, "fallback_id", null, p, report), x, z, retries);
     }
 
     private static <E extends Enum<E>> E enumValue(Class<E> type, String name, String p, ValidationReport report) {
