@@ -87,10 +87,9 @@ public final class TerrainSampler {
     }
 
     public TerrainSampler(MapConfig config, GrayRaster heightmap, HeightMapping mapping, Layers layers, BiomeRaster biomes, BiomeMapping biomeMapping) {
-        GrayRaster water = layers.water();
         this.heightmap = heightmap;
         this.mapping = mapping;
-        this.water = water;
+        this.water = layers.water();
         this.lava = layers.lava();
         this.bottom = layers.bottom();
         this.ceiling = layers.ceiling();
@@ -112,7 +111,7 @@ public final class TerrainSampler {
         this.originX = config.originX() != null ? config.originX() : -(int) Math.floor(this.width * this.scale / 2);
         this.originZ = config.originZ() != null ? config.originZ() : -(int) Math.floor(this.height * this.scale / 2);
         // Only read when there is a biome map to put the rivers on.
-        this.waterDistance = water != null && biomes != null && biomeMapping.hasRivers() ? this.computeWaterDistance() : null;
+        this.waterDistance = this.water != null && biomes != null && biomeMapping.hasRivers() ? this.computeWaterDistance() : null;
     }
 
     public int originX() {

@@ -328,14 +328,21 @@ public final class MapChunkGenerator extends ChunkGenerator {
             return Blocks.AIR.defaultBlockState();
         }
         if (y > column.terrainY) {
-            if (y <= column.fluidTop()) {
-                return column.isLava() ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
-            }
-            return Blocks.AIR.defaultBlockState();
+            return fluidOrAir(column, y);
         }
-        if (l == null) {
-            return unconfiguredGround(column, y, minY);
+        return l == null ? unconfiguredGround(column, y, minY) : groundState(l, column, x, y, z, minY);
+    }
+
+    /** Above the ground: the column's water or lava up to its surface, then air. */
+    private static BlockState fluidOrAir(TerrainSampler.Column column, int y) {
+        if (y <= column.fluidTop()) {
+            return column.isLava() ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
         }
+        return Blocks.AIR.defaultBlockState();
+    }
+
+    /** The ground of a map: bedrock at the bottom of the world, then the biome's surface layers over the default blocks. */
+    private static BlockState groundState(Loaded l, TerrainSampler.Column column, int x, int y, int z, int minY) {
         if (y == minY && l.bedrock) {
             return Blocks.BEDROCK.defaultBlockState();
         }
@@ -478,8 +485,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
         // Not Math.clamp: the terrain can be above the world top (explicit dimension), which clamp rejects.
         int surface = Math.min(chunk.getMaxY(), Math.max(column.terrainY, column.fluidTop()));
         // A ceiling goes up to the top of the world; the generation heightmaps keep the floor under it.
-        int top = column.ceilingY != TerrainSampler.NONE ? chunk.getMaxY() : surface;
-        int bottom = column.bottomY != TerrainSampler.NONE ? Math.max(minY, column.bottomY) : minY;
+        int top = column.ceilingY == TerrainSampler.NONE ? surface : chunk.getMaxY();
+        int bottom = column.bottomY == TerrainSampler.NONE ? minY : Math.max(minY, column.bottomY);
         for (int y = bottom; y <= top; y++) {
             BlockState state = this.stateAt(l, column, x, y, z, minY, chunk.getMaxY());
             if (state.isAir()) {
