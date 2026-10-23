@@ -19,6 +19,8 @@ public final class TerrainSampler {
     private final BiomeRaster biomes;
     private final BiomeMapping biomeMapping;
     private final MapConfig.Outside outside;
+    /** Heightmap pixels at 0 are empty (no block, no fluid): void outside and no bedrock, for floating islands. */
+    private final boolean emptyAtZero;
     private final MapConfig.Snow snow;
     /** False when snow is allowed everywhere: no need to sample the column. */
     private final boolean hasSnowRules;
@@ -78,6 +80,7 @@ public final class TerrainSampler {
         this.biomes = biomes;
         this.biomeMapping = biomeMapping;
         this.outside = config.outside();
+        this.emptyAtZero = this.outside.mode() == MapConfig.OutsideMode.VOID && !config.blocks().bedrock();
         this.snow = config.snow();
         this.hasSnowRules = !this.snow.equals(MapConfig.Snow.ALL) || biomeMapping.slots().stream().anyMatch(v -> v.snow() != null);
         this.defaultMountainY = config.seaLevel() + BiomeMapping.DEFAULT_MOUNTAIN_ABOVE_SEA;
@@ -155,6 +158,13 @@ public final class TerrainSampler {
         int px = clamp((int) Math.floor((x - this.originX) / this.scale), this.width);
         int pz = clamp((int) Math.floor((z - this.originZ) / this.scale), this.height);
 
+        if (this.emptyAtZero && this.heightmap.value(px, pz) == 0) {
+            out.terrainY = NONE;
+            out.waterY = NONE;
+            out.lavaY = NONE;
+            this.resolveBiome(x, z, px, pz, out);
+            return out;
+        }
         out.terrainY = this.mapping.toBlockY(this.scale > 1 ? this.bilinear(u, v) : this.heightmap.value(px, pz));
         out.waterY = this.fluid(this.water, px, pz);
         out.lavaY = this.fluid(this.lava, px, pz);

@@ -32,6 +32,20 @@ class TerrainSamplerTest {
     }
 
     @Test
+    void zeroIsEmptyWithVoidAndNoBedrock() throws IOException {
+        GrayRaster height = raster(4, 4, (x, y, c) -> x == 0 ? 0 : 100);
+        TerrainSampler floating = sampler("{\"origin\": [0, 0], \"outside\": {\"mode\": \"void\"}, \"blocks\": {\"bedrock\": false}}", height, height, null);
+        TerrainSampler.Column empty = floating.sample(0, 0, new TerrainSampler.Column());
+        assertTrue(empty.inside);
+        assertEquals(TerrainSampler.NONE, empty.terrainY);
+        assertEquals(TerrainSampler.NONE, empty.fluidTop());
+        assertEquals(100, floating.terrainY(1, 0));
+        // With bedrock, or ground around the map, 0 is still the lowest ground.
+        assertEquals(0, sampler("{\"origin\": [0, 0], \"outside\": {\"mode\": \"void\"}}", height, null, null).terrainY(0, 0));
+        assertEquals(0, sampler("{\"origin\": [0, 0], \"blocks\": {\"bedrock\": false}}", height, null, null).terrainY(0, 0));
+    }
+
+    @Test
     void explicitOriginAndFlatOutside() throws IOException {
         TerrainSampler s = sampler("{\"origin\": [100, 200], \"outside\": {\"ground_level\": 10, \"water_level\": 20}}",
                 raster(4, 4, (x, y, c) -> 50 + x + 10 * y), null, null);

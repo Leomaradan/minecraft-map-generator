@@ -9,8 +9,8 @@ example.zip       256x256, 8-bit maps: an island with a mountain lake, a lava po
                   (from the embedded datapack), a structure template and forced structures.
 example-tall.zip  same island with 16-bit maps scaled to a 700-block-high mountain; the world height
                   is raised automatically through a generated dimension type.
-example-dimensions.zip  the island in the overworld, a volcanic island in the Nether and an island
-                  surrounded by void in a new dimension (mapgen:sky), in the "dimensions" format of map.json.
+example-dimensions.zip  the island in the overworld, a volcanic island in the Nether and an island in
+                  the void in a new dimension (mapgen:sky), in the "dimensions" format of map.json.
 """
 import gzip
 import io
@@ -270,14 +270,14 @@ def volcano(size=96):
 
 
 def sky_island(size=64):
-    """A hill filling the whole heightmap: around it (outside the heightmap) there is only void."""
+    """A round island; 0 around it is empty (the sky map has a void outside and no bedrock)."""
     heights = []
     c = size / 2
     for z in range(size):
         row = []
         for x in range(size):
             d = dist(x, z, c, c) / c
-            row.append(140 + max(0.0, 1.0 - d) * 30)
+            row.append(0 if d > 0.9 else 140 + (0.9 - d) * 30)
         heights.append(row)
     return heights
 
@@ -308,6 +308,8 @@ def build_dimensions(path):
         "files": {"heightmap": "sky/heightmap.png", "water": None, "lava": None, "biomes": None, "structures": None,
                   "datapack": None},
         "outside": {"mode": "void", "biome": "minecraft:cherry_grove"},
+        # Void around the map and no bedrock: heightmap pixels at 0 are empty.
+        "blocks": {"bedrock": False},
         "decoration": {"carvers": False},
     }
     config = {"$schema": SCHEMAS + "map.schema.json", "dimensions": [island, nether, sky]}

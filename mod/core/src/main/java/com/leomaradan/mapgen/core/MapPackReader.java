@@ -287,11 +287,16 @@ public final class MapPackReader {
 
     /** The lowest and highest block Y the map produces. */
     private static int[] blockRange(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water, GrayRaster lava) {
-        int[] range = valueRange(heightmap);
+        // Pixels at 0 are empty when the map floats in the void (see TerrainSampler): they are not the lowest ground.
+        boolean emptyAtZero = config.outside().mode() == MapConfig.OutsideMode.VOID && !config.blocks().bedrock();
+        int[] range = valueRange(heightmap, emptyAtZero);
+        if (range[0] > range[1]) {
+            range = new int[]{0, 0};
+        }
         int lowest = mapping.toBlockY(range[0]);
         int highest = mapping.toBlockY(range[1]);
         for (GrayRaster fluid : new GrayRaster[]{water, lava}) {
-            int max = fluid == null ? 0 : valueRange(fluid)[1];
+            int max = fluid == null ? 0 : valueRange(fluid, false)[1];
             if (max > 0) {
                 highest = Math.max(highest, mapping.toBlockY(max));
             }
@@ -452,12 +457,16 @@ public final class MapPackReader {
         }
     }
 
-    private static int[] valueRange(GrayRaster raster) {
+    /** Smallest and largest values; with {@code skipZero}, 0 is ignored (min > max when every value is 0). */
+    private static int[] valueRange(GrayRaster raster, boolean skipZero) {
         int min = Integer.MAX_VALUE;
         int max = Integer.MIN_VALUE;
         for (int y = 0; y < raster.height(); y++) {
             for (int x = 0; x < raster.width(); x++) {
                 int v = raster.value(x, y);
+                if (skipZero && v == 0) {
+                    continue;
+                }
                 if (v < min) {
                     min = v;
                 }

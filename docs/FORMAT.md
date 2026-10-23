@@ -88,6 +88,11 @@ y = min_y + v / max_value * (max_y - min_y)  ("height": {"min_y": ..., "max_y": 
 
 When `horizontal_scale` is above 1, heights are interpolated (bilinear) between pixels.
 
+**Empty columns.** With `"outside": {"mode": "void"}` and `"blocks": {"bedrock": false}`, a pixel
+at 0 generates nothing (no ground, no water, no lava), like the void around the map: islands in
+the void, for a sky dimension for example. The other pixels are ground down to the bottom of the
+world, as usual. Otherwise 0 is a normal height.
+
 ## World height
 
 The world is tall enough for the map: by default its bottom is at least 16 blocks below the
@@ -433,7 +438,7 @@ Every field is optional. Unknown keys produce a warning.
 | `dimension_parameter` | automatic | World bottom and height (multiples of 16). |
 | `sea_level` | `63` | Minecraft's sea level (mob spawning, some features). It does **not** add water; use the water map. |
 | `biome_transition` | `4` | Biome borders are shifted by up to this many blocks (0 to 64) so they look natural; `0` keeps pixel borders. See [Biome transitions](#biome-transitions). |
-| `outside.mode` | `flat` | Around the map: `flat` (ground at `ground_level`, water up to `water_level`), `void` (nothing), `extend` (border pixels extended). |
+| `outside.mode` | `flat` | Around the map: `flat` (ground at `ground_level`, water up to `water_level`), `void` (nothing), `extend` (border pixels extended). With `void` and no bedrock, heightmap pixels at 0 are empty too (see [Heightmap](#heightmap)). |
 | `outside.ground_level` | `64` | Ground Y around the map (`flat`). |
 | `outside.water_level` | `63` | Water surface around the map, if above the ground (`flat`). |
 | `outside.biome` | `minecraft:plains` | Biome around the map (and everywhere without a biome map). |
