@@ -1,7 +1,7 @@
 # Map Generator
 
-A Minecraft 26.3 mod that adds a **Map from ZIP** world type: instead of procedural generation, the
-world is built from a predefined map packed in a ZIP file:
+A Minecraft 26.1 / 26.2 mod that adds a **Map from ZIP** world type: instead of procedural
+generation, the world is built from a predefined map packed in a ZIP file:
 
 * a **heightmap** (8-bit or 16-bit grayscale),
 * a **biome map** with a color → biome mapping (vanilla, modded or custom biomes),
@@ -16,14 +16,30 @@ The format is described in [docs/FORMAT.md](../docs/FORMAT.md). `example/` conta
 builds two sample maps (`example/example.zip`, and `example/example-tall.zip` with 16-bit maps and a
 700-block-high world).
 
+## Minecraft versions
+
+This is the `mc/26.1-26.2` branch. It builds one jar per Minecraft version and loader:
+
+| Jar | Runs on |
+|---|---|
+| `mapgen-<loader>-26.1-<version>.jar` | 26.1, 26.1.1, 26.1.2 |
+| `mapgen-<loader>-26.2-<version>.jar` | 26.2 |
+
+Minecraft 26.3 is built from the `main` branch: 26.3 rewrote the world generation API (density
+functions, carvers, structure starts, biome resolvers) and replaced GLFW with SDL3, so the
+generator code differs between the branches. The map ZIP format is the same, but a map's
+`datapack/` follows Minecraft's own format: custom biomes written for 26.3 (mob spawns as the
+`minecraft:gameplay/natural_mob_spawns` attribute) don't load on 26.1 or 26.2, which use the
+`spawners` and `spawn_costs` fields. The example maps of this branch use the older format.
+
 ## Mod loaders
 
 | Loader | Status |
 |---|---|
 | Fabric (+ Fabric API) | Supported |
 | NeoForge | Supported |
-| Quilt | Not tested; Quilt runs Fabric mods, so the Fabric jar should work if Quilt supports 26.3 |
-| Forge | Not supported: there is no Forge for 26.3 in the MultiLoader toolchain used here |
+| Quilt | Not tested; Quilt runs Fabric mods, so the Fabric jar should work if Quilt supports 26.1 / 26.2 |
+| Forge | Not supported: there is no Forge for 26.x in the MultiLoader toolchain used here |
 | LiteLoader | Not possible: LiteLoader stopped at Minecraft 1.12.2 |
 
 Both jars share the same code (`common/` and `core/`); only registration differs.
@@ -62,20 +78,28 @@ Gradle must run on Java 25 (set `JAVA_HOME`), which Loom requires. The core-only
 work on Java 21.
 
 ```sh
-./gradlew build          # jars in fabric/build/libs and neoforge/build/libs
+./gradlew build                   # Minecraft 26.2; jars in fabric/build/libs and neoforge/build/libs
+./gradlew build -Pmc=26.1         # Minecraft 26.1 (26.1.x)
 ./gradlew -PcoreOnly :core:test   # format parsing tests only, no Minecraft download
-./gradlew :fabric:runClient       # or :neoforge:runClient, :fabric:runServer, ...
+./gradlew -Pmc=26.1 :fabric:runClient   # or :neoforge:runClient, :fabric:runServer, ...
 python3 example/make_example.py   # rebuild the example maps
 ```
 
+`-Pmc=<version>` loads `versions/<version>.properties`, which holds the Minecraft, Fabric API,
+NeoForge and NeoForm versions; the rest stays in `gradle.properties`. The few client methods that
+moved between 26.1 and 26.2 are looked up at runtime (`client/ClientCompat`), so both versions
+build from the same sources. NeoForge only has beta builds for 26.1.0: the 26.1 jar is compiled
+against `26.1.0.19-beta` and runs on any later 26.1.x NeoForge.
+
 ### Continuous integration
 
-* `.github/workflows/mod.yml` builds and tests the mod on every change under `mod/`. It publishes two
-  workflow artifacts, `mapgen-fabric` and `mapgen-neoforge`, each holding only the mod jar
+* `.github/workflows/mod.yml` builds and tests the mod for 26.1 and 26.2 on every change under
+  `mod/`. It publishes one workflow artifact per version and loader (`mapgen-fabric-26.1`,
+  `mapgen-neoforge-26.2`...), each holding only the mod jar
   (`mapgen-<loader>-<minecraft version>-<version>.jar`). The sources and javadoc jars stay in the
   local `build/libs` folders.
-* `.github/workflows/release.yml` runs on a `v*` tag and creates a GitHub release with the same two
-  jars and the example map ZIPs.
+* `.github/workflows/release.yml` runs on a `v*` tag (for example `v0.2.0-mc26.1-26.2`) and creates a
+  GitHub release with the four jars and the example map ZIPs.
 
 Artifact names come from `mod_id` in `gradle.properties`, so the workflows can be copied to another
 mod built from the same template without changes.

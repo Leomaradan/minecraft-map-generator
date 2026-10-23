@@ -7,7 +7,7 @@ This file guides Claude Code (claude.ai/code) when it works in this repository.
 There are two products, both built around one **map ZIP format**. A map ZIP holds a heightmap, a
 biome map, water and lava maps, `map.json`, structures and an optional datapack.
 
-- `mod/`: a Minecraft 26.3 mod (Fabric and NeoForge) that adds a "Map from ZIP" world type.
+- `mod/`: a Minecraft mod (Fabric and NeoForge) that adds a "Map from ZIP" world type. **This is the `mc/26.1-26.2` branch**: it builds the mod for Minecraft 26.1 and 26.2. `main` targets 26.3.
 - `site/`: the GitHub Pages site. It has a landing page and a browser editor that creates and edits map ZIPs.
 - `docs/FORMAT.md` and `docs/schemas/*.schema.json`: the format spec. Both products depend on it.
 
@@ -18,7 +18,8 @@ biome map, water and lava maps, `map.json`, structures and an optional datapack.
 Gradle must run on Java 25, because Loom requires it. The core module targets Java 21.
 
 ```sh
-./gradlew build                     # all modules + tests; jars in fabric/build/libs, neoforge/build/libs
+./gradlew build                     # Minecraft 26.2: all modules + tests; jars in fabric/build/libs, neoforge/build/libs
+./gradlew build -Pmc=26.1           # Minecraft 26.1 (versions/26.1.properties)
 ./gradlew -PcoreOnly :core:test     # core tests only, no Minecraft download (fast; works on Java 21)
 ./gradlew -PcoreOnly :core:test --tests 'com.leomaradan.mapgen.core.TerrainSamplerTest'   # one test class
 ./gradlew :fabric:runClient         # or :neoforge:runClient, :fabric:runServer
@@ -26,6 +27,21 @@ python3 example/make_example.py     # regenerate example/example.zip and example
 ```
 
 `-PcoreOnly` stops `settings.gradle` from including `common`, `fabric` and `neoforge`. Gradle then never resolves the Loom or ModDevGradle plugins.
+
+`-Pmc=<version>` (default 26.2) makes `settings.gradle` load `versions/<version>.properties` (Minecraft, Fabric API, NeoForge and NeoForm versions) onto every project. Those keys are not in `gradle.properties`.
+
+### This branch and `main`
+
+- `main` targets 26.3, and this branch targets 26.1 and 26.2. 26.3 rewrote the world generation API, so `common/` differs between the two: port world generation fixes by hand in both directions. `core/` is identical.
+- Main differences from `main`:
+  - `MapChunkGenerator` uses `fillFromNoise`, `buildSurface` and `applyCarvers`, not `buildTerrain`.
+  - Carvers run with an empty `replaceable` set, so they only mark the `CarvingMask`, and `applyCarvingMask` writes the blocks as on 26.3.
+  - `MapBiomeSource` implements `getNoiseBiome`.
+  - `NoiseCaves` wires the noises with a `DensityFunction.Visitor`.
+  - The file dialog uses tinyfd, not SDL3.
+  - `findNearestMapStructure` caps vanilla's search radius. Before 26.3, vanilla opens or creates a region file for each candidate chunk, which hangs the server around a map.
+- 26.1 and 26.2 differ only in a few client methods (`Minecraft` vs `Gui`), which `client/ClientCompat` looks up at runtime. Don't call `setScreen` or `toastManager` directly.
+- Map datapacks use Minecraft's own format. The example biome uses the pre-26.3 `spawners`/`spawn_costs` fields, the pack format range is 101–107, and `hut.nbt` has DataVersion 4786 (26.1).
 
 ### Site (run from `site/`)
 
