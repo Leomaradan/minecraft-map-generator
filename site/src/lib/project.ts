@@ -58,6 +58,8 @@ export interface StructureTemplate {
   size?: [number, number, number];
   structureId?: string;
   fallbackId?: string;
+  /** Extra tries when the structure can't be generated (unset: the mod's default). */
+  retries?: number;
   rotation: Rotation;
   mirror: Mirror;
   /** A world Y, or "surface". */

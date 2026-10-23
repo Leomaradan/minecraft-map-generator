@@ -77,6 +77,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 
@@ -97,6 +98,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
     private final MapBiomeSource mapBiomes;
     private final MapSettings settings;
     private volatile Loaded loaded;
+    /** Vanilla's cave functions, built once the server's registries are known. */
+    private final AtomicReference<@Nullable NoiseCaves> noiseCaves = new AtomicReference<>();
 
     /**
      * Pack data resolved on first use (the pack is only available once the server runs). The
@@ -372,10 +375,71 @@ public final class MapChunkGenerator extends ChunkGenerator {
                                                        Set<Holder<Biome>> possibleBiomes) {
         Loaded l = this.loaded();
         this.fillTerrain(l, chunk);
-        if (l != null ? l.carvers.stream().anyMatch(MapConfig.Carvers::any) : this.settings.carverFilter().any()) {
+        if (l != null && l.carvers.stream().anyMatch(MapConfig.Carvers::noise)) {
+            NoiseCaves caves = this.noiseCaves();
+            if (caves != null) {
+                caves.carve(chunk, randomState, new ChunkColumns(l, chunk.getPos()));
+            }
+        }
+        if (l != null ? l.carvers.stream().anyMatch(c -> c.cave() || c.canyon()) : this.settings.carverFilter().any()) {
             this.carve(l, chunk, randomState);
         }
         return CompletableFuture.completedFuture(chunk);
+    }
+
+    private @Nullable NoiseCaves noiseCaves() {
+        NoiseCaves caves = this.noiseCaves.get();
+        if (caves == null) {
+            caves = NoiseCaves.create();
+            this.noiseCaves.set(caves);
+        }
+        return caves;
+    }
+
+    /** The columns of a chunk and its one-block border, sampled once for the noise caves. */
+    private static final class ChunkColumns implements NoiseCaves.Columns {
+        private static final int SIZE = 18;
+        private final int originX;
+        private final int originZ;
+        private final int[] terrain = new int[SIZE * SIZE];
+        private final boolean[] fluid = new boolean[SIZE * SIZE];
+        private final boolean[] enabled = new boolean[SIZE * SIZE];
+
+        ChunkColumns(Loaded l, ChunkPos pos) {
+            this.originX = pos.getMinBlockX() - 1;
+            this.originZ = pos.getMinBlockZ() - 1;
+            TerrainSampler.Column column = new TerrainSampler.Column();
+            for (int i = 0; i < SIZE; i++) {
+                for (int j = 0; j < SIZE; j++) {
+                    int x = this.originX + i;
+                    int z = this.originZ + j;
+                    l.sampler.sample(x, z, column);
+                    this.terrain[i * SIZE + j] = column.terrainY;
+                    this.fluid[i * SIZE + j] = column.fluidTop() != TerrainSampler.NONE;
+                    this.enabled[i * SIZE + j] = l.carvers.get(l.index(column.biome)).noise();
+                }
+            }
+        }
+
+        private int index(int x, int z) {
+            return (x - this.originX) * SIZE + (z - this.originZ);
+        }
+
+        @Override
+        public int terrainY(int x, int z) {
+            return this.terrain[this.index(x, z)];
+        }
+
+        @Override
+        public boolean enabled(int x, int z) {
+            return this.enabled[this.index(x, z)];
+        }
+
+        @Override
+        public boolean nearFluid(int x, int z) {
+            int i = this.index(x, z);
+            return this.fluid[i] || this.fluid[i - 1] || this.fluid[i + 1] || this.fluid[i - SIZE] || this.fluid[i + SIZE];
+        }
     }
 
     private void fillTerrain(@Nullable Loaded l, ChunkAccess chunk) {
@@ -631,14 +695,75 @@ public final class MapChunkGenerator extends ChunkGenerator {
             if (existing != null && existing.isValid()) {
                 continue;
             }
-            Climate.Sampler climate = state.randomState().createClimateSampler(SamplerContext.builder().enableCaches().build());
-            StructureStart start = structure.generate(holder.get(), level, registryAccess, this, this.biomeSource, climate, state.randomState(),
-                    structureTemplateManager, state.getLevelSeed(), chunkPos, 0, centerChunk, biome -> true);
+            StructureStart start = this.generateWithRetries(l, entry, holder.get(), registryAccess, state, centerChunk, structureTemplateManager, level);
             if (start.isValid()) {
+                // Stored in the entry's chunk even when generated from a neighbor: references follow the pieces' bounds.
                 structureManager.setStartForStructure(structure, start, centerChunk);
-            } else {
-                MapGen.LOG.warn("[{}] Structure {} could not be generated at {}, {}", l.pack.name(), entry.id(), entry.x(), entry.z());
             }
+        }
+    }
+
+    /** Generates a structure of structures.json, trying other seeds and nearby chunks when it fails. */
+    private StructureStart generateWithRetries(Loaded l, StructureEntry.Structure entry, Holder<Structure> holder, RegistryAccess registryAccess,
+                                               ChunkGeneratorStructureState state, ChunkAccess centerChunk,
+                                               StructureTemplateManager structureTemplateManager, ResourceKey<Level> level) {
+        ChunkPos chunkPos = centerChunk.getPos();
+        Climate.Sampler climate = state.randomState().createClimateSampler(SamplerContext.builder().enableCaches().build());
+        List<StructureAttempt> attempts = StructureAttempt.list(entry.retries());
+        for (int i = 0; i < attempts.size(); i++) {
+            StructureAttempt attempt = attempts.get(i);
+            ChunkPos source = new ChunkPos(chunkPos.x() + attempt.dx(), chunkPos.z() + attempt.dz());
+            StructureStart start = holder.value().generate(holder, level, registryAccess, this, this.biomeSource, climate, state.randomState(),
+                    structureTemplateManager, state.getLevelSeed() + attempt.seedOffset(), source, 0, centerChunk, biome -> true);
+            if (start.isValid()) {
+                if (i > 0) {
+                    MapGen.LOG.info("[{}] Structure {} at {}, {} generated on retry {} (moved by {}, {} chunks)", l.pack.name(), entry.id(),
+                            entry.x(), entry.z(), i, attempt.dx(), attempt.dz());
+                }
+                return start;
+            }
+        }
+        MapGen.LOG.warn("[{}] Structure {} could not be generated at {}, {} ({} attempts)", l.pack.name(), entry.id(), entry.x(), entry.z(),
+                attempts.size());
+        return StructureStart.INVALID_START;
+    }
+
+    /**
+     * One try at generating a structure of structures.json: a chunk offset from the entry's chunk
+     * and an offset added to the world seed (another layout, rotation or jigsaw choice).
+     */
+    record StructureAttempt(int dx, int dz, long seedOffset) {
+        private static final long SEED_STEP = 0x9E3779B97F4A7C15L;
+        private static final int SAME_CHUNK_SEEDS = 3;
+        private static final int MAX_RING = 2;
+
+        /**
+         * The first try, then up to {@code retries} more: other seeds in the same chunk, the
+         * chunks around (nearest ring first) with the world seed, then the same chunks with
+         * another seed.
+         */
+        static List<StructureAttempt> list(int retries) {
+            List<StructureAttempt> attempts = new ArrayList<>();
+            attempts.add(new StructureAttempt(0, 0, 0));
+            for (int s = 1; s <= SAME_CHUNK_SEEDS; s++) {
+                attempts.add(new StructureAttempt(0, 0, s * SEED_STEP));
+            }
+            List<int[]> neighbors = new ArrayList<>();
+            for (int ring = 1; ring <= MAX_RING; ring++) {
+                for (int dx = -ring; dx <= ring; dx++) {
+                    for (int dz = -ring; dz <= ring; dz++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dz)) == ring) {
+                            neighbors.add(new int[]{dx, dz});
+                        }
+                    }
+                }
+            }
+            for (long seed : new long[]{0, SEED_STEP}) {
+                for (int[] n : neighbors) {
+                    attempts.add(new StructureAttempt(n[0], n[1], seed));
+                }
+            }
+            return List.copyOf(attempts.subList(0, Math.min(attempts.size(), retries + 1)));
         }
     }
 

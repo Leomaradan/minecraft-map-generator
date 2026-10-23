@@ -108,6 +108,13 @@
         "z": {
           "type": "integer",
           "description": "Heightmap pixel (or world Z with \"coordinates\": \"world\")."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 32,
+          "description": "Extra tries when the structure can't be generated: other random choices in the same chunk, then in the chunks up to 2 chunks away. 0 keeps it at its chunk."
         }
       }
     }

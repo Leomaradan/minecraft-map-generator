@@ -184,11 +184,12 @@ export function CarversEditor({ value, onChange }: { value: Json | undefined; on
   const o = (typeof value === 'object' && value !== null ? value : {}) as JsonObject;
   return (
     <div className="row">
-      <ModeSelect mode={mode} onChange={(m) => onChange(m === 'default' ? undefined : m === 'off' ? false : { cave: true, canyon: true })} />
+      <ModeSelect mode={mode} onChange={(m) => onChange(m === 'default' ? undefined : m === 'off' ? false : { cave: true, canyon: true, noise: true })} />
       {mode === 'custom' && (
         <>
           <label><input type="checkbox" checked={o.cave !== false} onChange={(e) => onChange({ ...o, cave: e.target.checked })} /> caves</label>
           <label><input type="checkbox" checked={o.canyon !== false} onChange={(e) => onChange({ ...o, canyon: e.target.checked })} /> canyons</label>
+          <label><input type="checkbox" checked={(o.noise ?? o.cave) !== false} onChange={(e) => onChange({ ...o, noise: e.target.checked })} /> noise caves</label>
         </>
       )}
     </div>

@@ -246,6 +246,27 @@ of `map.json` there (they are not combined):
   that don't check their biome (rare) can't be filtered per biome.
 * Carvers are picked per chunk, from the biome at the north-west corner of the chunk where the
   cave starts, like in vanilla. A cave can cross into a neighbor biome that has no carvers.
+* Noise caves (`noise`) are checked per column: they stop at the edge of a biome without them.
+
+### Caves
+
+`carvers` turns on three kinds of caves, as in vanilla:
+
+* `cave`: the classic winding tunnels of the carvers;
+* `canyon`: ravines;
+* `noise`: the large caves of Minecraft's noise generator: big "cheese" caverns with pillars,
+  long "spaghetti" tunnels, thin "noodle" caves and cave entrances on the surface. Without
+  `noise`, the key defaults to the value of `cave`.
+
+The caves are dry: no flooded caves or aquifers, and lava only in the last 8 blocks above the
+bottom of the world. They don't break into the map's water and lava: under a lake or the sea,
+at least 8 blocks of ground are kept above them.
+
+Cave biomes come from `biome_underground`: with `"biome_underground": "minecraft:lush_caves"`
+(or `minecraft:dripstone_caves`, `minecraft:deep_dark`), the caves under that biome are lush
+caves, with their moss, vines and dripleaves. Elsewhere they take the biome of the surface, like
+vanilla caves outside cave biomes. The open caves are also where dungeons (monster spawners) can
+be placed.
 
 ## Block lists
 
@@ -349,7 +370,7 @@ Every field is optional. Unknown keys produce a warning.
 | `decoration.features.disabled` | `[]` | Placed features to skip, e.g. `minecraft:lake_lava_surface`. |
 | `decoration.features.disabled_steps` | `[]` | Generation steps to skip entirely (see below). |
 | `decoration.features.only` | all | If set, only these placed features are generated. |
-| `decoration.carvers` | `true` | Caves and ravines from the biomes: `true`, `false`, or `{"cave": bool, "canyon": bool}` (each `true` by default). They don't break into the map's water and lava. An entry of `biomes.json` can override it. |
+| `decoration.carvers` | `true` | Caves and ravines from the biomes: `true`, `false`, or `{"cave": bool, "canyon": bool, "noise": bool}` (`cave` and `canyon` are `true` by default, `noise` follows `cave`). See [Caves](#caves). An entry of `biomes.json` can override it. |
 | `vanilla_structures.enabled` | `true` | Random structures (villages, temples...). `"vanilla_structures": false` is a shorthand. |
 | `vanilla_structures.disabled` | `[]` | Structures or structure sets to turn off, e.g. `minecraft:village_plains` or `minecraft:villages`. |
 | `vanilla_structures.only` | all | If set, only these structures or structure sets are generated. |
@@ -406,6 +427,12 @@ to the center of that pixel in the world, wherever `origin` and `horizontal_scal
   When `id` doesn't exist (a structure from a mod that isn't installed), `fallback_id` is used
   instead; without a `fallback_id` that exists, the structure is skipped. Both cases are reported
   as warnings when the map is loaded.
+  Some structures can't be generated everywhere (the ground or the layout doesn't fit). Then
+  the structure is tried again with other random choices, first in the same chunk, then in the
+  chunks up to 2 chunks away (32 blocks). `retries` (default `32`, `0` to `64`) sets how many
+  extra tries are made; `"retries": 0` keeps the structure at its chunk. A structure that still
+  can't be generated is reported in the server log. `/locate structure` gives the position of the
+  entry, even when the structure moved.
 
 `type` can be omitted: an entry with `path` is a template, one with `id` a structure.
 

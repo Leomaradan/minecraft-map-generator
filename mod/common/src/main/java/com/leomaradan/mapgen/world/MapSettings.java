@@ -16,10 +16,11 @@ import java.util.Optional;
  * @param pack          id of the map pack, empty when no ZIP was selected yet
  * @param biomeFeatures feature filters of biomes.json entries, by biome (the generator lists each biome's features before the pack is loaded)
  * @param carvers       cave carvers (and canyon carvers when {@code canyons} is absent, as before it existed)
+ * @param noiseCaves    noise caves; when absent (worlds created before it existed) they follow {@code carvers}
  */
 public record MapSettings(String pack, String name, int minY, int height, int seaLevel, boolean features, List<String> disabledFeatures,
                           List<String> disabledFeatureSteps, Optional<List<String>> onlyFeatures, List<BiomeFeatures> biomeFeatures,
-                          boolean carvers, Optional<Boolean> canyons, boolean vanillaStructures, List<String> disabledStructures,
+                          boolean carvers, Optional<Boolean> canyons, Optional<Boolean> noiseCaves, boolean vanillaStructures, List<String> disabledStructures,
                           Optional<List<String>> onlyStructures) {
 
     /** Feature filter of one biomes.json entry or substitute. */
@@ -54,6 +55,7 @@ public record MapSettings(String pack, String name, int minY, int height, int se
             BiomeFeatures.CODEC.listOf().optionalFieldOf("biome_features", List.of()).forGetter(MapSettings::biomeFeatures),
             Codec.BOOL.optionalFieldOf("carvers", true).forGetter(MapSettings::carvers),
             Codec.BOOL.optionalFieldOf("canyons").forGetter(MapSettings::canyons),
+            Codec.BOOL.optionalFieldOf("noise_caves").forGetter(MapSettings::noiseCaves),
             Codec.BOOL.optionalFieldOf("vanilla_structures", true).forGetter(MapSettings::vanillaStructures),
             Codec.STRING.listOf().optionalFieldOf("disabled_structures", List.of()).forGetter(MapSettings::disabledStructures),
             Codec.STRING.listOf().optionalFieldOf("only_structures").forGetter(MapSettings::onlyStructures)
@@ -61,7 +63,8 @@ public record MapSettings(String pack, String name, int minY, int height, int se
 
     /** Settings of a world type selected without a ZIP yet. */
     public static final MapSettings UNCONFIGURED = new MapSettings("", "", DimensionLayout.VANILLA_MIN_Y, DimensionLayout.VANILLA_HEIGHT, 63,
-            true, List.of(), List.of(), Optional.empty(), List.of(), true, Optional.empty(), true, List.of(), Optional.empty());
+            true, List.of(), List.of(), Optional.empty(), List.of(), true, Optional.empty(), Optional.empty(), true, List.of(),
+            Optional.empty());
 
     public static MapSettings of(MapPack pack) {
         MapConfig config = pack.config();
@@ -74,7 +77,7 @@ public record MapSettings(String pack, String name, int minY, int height, int se
                 .toList();
         return new MapSettings(pack.id(), pack.name(), pack.layout().minY(), pack.layout().height(), config.seaLevel(),
                 features.enabled(), features.disabled(), features.disabledSteps(), Optional.ofNullable(features.only()), biomeFeatures,
-                carvers.cave(), Optional.of(carvers.canyon()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()));
+                carvers.cave(), Optional.of(carvers.canyon()), Optional.of(carvers.noise()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()));
     }
 
     public boolean isConfigured() {
@@ -86,7 +89,7 @@ public record MapSettings(String pack, String name, int minY, int height, int se
     }
 
     public MapConfig.Carvers carverFilter() {
-        return new MapConfig.Carvers(this.carvers, this.canyons.orElse(this.carvers));
+        return new MapConfig.Carvers(this.carvers, this.canyons.orElse(this.carvers), this.noiseCaves.orElse(this.carvers));
     }
 
     public MapConfig.VanillaStructures structureFilter() {

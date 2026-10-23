@@ -258,7 +258,8 @@ class MapPackReaderTest {
                           "structures": [
                             {"type": "template", "path": "structures/house.nbt", "x": 1, "y": "surface", "z": 2, "rotation": "clockwise_90"},
                             {"path": "structures/house.nbt", "x": 5, "y": 70, "z": 6, "mirror": "front_back"},
-                            {"type": "structure", "id": "minecraft:bastion_remnant", "x": 500, "z": -500}
+                            {"type": "structure", "id": "minecraft:bastion_remnant", "x": 500, "z": -500},
+                            {"type": "structure", "id": "minecraft:mansion", "x": 0, "z": 0, "retries": 0}
                           ]
                         }
                         """)
@@ -266,7 +267,9 @@ class MapPackReaderTest {
         assertTrue(result.ok(), result.report().toString());
         assertTrue(result.report().warnings().isEmpty(), result.report().toString());
         MapPack pack = result.pack();
-        assertEquals(3, pack.structures().size());
+        assertEquals(4, pack.structures().size());
+        assertEquals(StructureEntry.Structure.DEFAULT_RETRIES, ((StructureEntry.Structure) pack.structures().get(2)).retries());
+        assertEquals(new StructureEntry.Structure("minecraft:mansion", null, 0, 0, 0), pack.structures().get(3));
         StructureEntry.Template first = (StructureEntry.Template) pack.structures().get(0);
         assertNull(first.y());
         assertEquals(StructureEntry.Rotation.CLOCKWISE_90, first.rotation());
@@ -286,14 +289,24 @@ class MapPackReaderTest {
                           {"type": "template", "path": "missing.nbt", "x": 1, "z": 2},
                           {"type": "structure", "id": "Not Valid", "x": 1, "z": 2},
                           {"type": "template", "path": "a.nbt", "x": 1, "z": 2, "rotation": "sideways"},
-                          {"type": "structure", "id": "minecraft:igloo"}
+                          {"type": "structure", "id": "minecraft:igloo"},
+                          {"type": "structure", "id": "minecraft:igloo", "x": 1, "z": 2, "retries": 100},
+                          {"type": "structure", "id": "minecraft:igloo", "x": 1, "z": 2, "retries": -1},
+                          {"type": "castle", "id": "minecraft:igloo", "x": 1, "z": 2},
+                          {"type": "template", "x": 1, "z": 2},
+                          {"type": "template", "path": "/structures/a.txt", "x": 1, "z": 2}
                         ]
                         """)
                 .read();
         assertFalse(result.ok());
+        assertTrue(anyContains(result.report().errors(), "retries must be between 0 and 64"));
         assertTrue(anyContains(result.report().errors(), "missing.nbt\" is not in the ZIP"));
         assertTrue(anyContains(result.report().errors(), "not a valid resource id"));
         assertTrue(anyContains(result.report().errors(), "x and z are required"));
+        assertTrue(anyContains(result.report().errors(), "type must be \"template\" or \"structure\""));
+        assertTrue(anyContains(result.report().errors(), ".path is required for a template"));
+        assertTrue(anyContains(result.report().errors(), "must point to a structure template (.nbt file)"));
+        assertEquals(2, result.report().errors().stream().filter(e -> e.contains("retries must be between")).count());
     }
 
     @Test
@@ -523,7 +536,7 @@ class MapPackReaderTest {
         BiomeMapping.Variant forest = mapping.slots().get(0);
         assertEquals(BlockPalette.Method.PERLIN, forest.top().method());
         assertFalse(forest.features().allows("minecraft:trees_plains", "vegetal_decoration"));
-        assertEquals(new MapConfig.Carvers(true, false), forest.carvers());
+        assertEquals(new MapConfig.Carvers(true, false, true), forest.carvers());
         BiomeMapping.Variant grove = mapping.slots().get(1);
         assertEquals(MapConfig.Features.NONE, grove.features());
         assertEquals(MapConfig.Carvers.NONE, grove.carvers());

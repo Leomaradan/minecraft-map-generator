@@ -144,6 +144,7 @@ export function Structures() {
               <>
                 <Field label="Structure id"><TextInput value={template.structureId} list="structure-ids" onChange={(v) => updateTemplate(template.id, { structureId: v })} /></Field>
                 <Field label="Fallback id (if the mod is missing)"><TextInput value={template.fallbackId} list="structure-ids" onChange={(v) => updateTemplate(template.id, { fallbackId: v })} /></Field>
+                <Field label="Retries if it can't be generated (moves up to 2 chunks)"><NumInput value={template.retries} min={0} max={64} placeholder="32" onChange={(v) => updateTemplate(template.id, { retries: v })} /></Field>
               </>
             ) : (
               <>
