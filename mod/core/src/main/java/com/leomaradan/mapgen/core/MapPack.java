@@ -14,8 +14,12 @@ import java.util.Map;
  * @param biomes       null when the pack has no biome map (the outside biome is used everywhere)
  * @param water        null when absent
  * @param lava         null when absent
+ * @param bottom       lowest ground block of each column (floating islands), null when absent
+ * @param ceiling      lowest block of the ceiling of each column (cave worlds), null when absent
  * @param templates    raw {@code .nbt} files referenced by template structures, by ZIP path
- * @param datapack     files of the embedded datapack, by path relative to the datapack folder
+ * @param datapack     files of the embedded datapacks of the whole ZIP, by path relative to the datapack folder
+ * @param lowestY      lowest block Y the map produces (terrain, fluids, outside ground)
+ * @param highestY     highest block Y the map produces
  */
 public record MapPack(
         String id,
@@ -28,12 +32,21 @@ public record MapPack(
         BiomeMapping biomeMapping,
         GrayRaster water,
         GrayRaster lava,
+        GrayRaster bottom,
+        GrayRaster ceiling,
         List<StructureEntry> structures,
         Map<String, byte[]> templates,
         Map<String, byte[]> datapack,
         DimensionLayout layout,
-        TerrainSampler sampler
+        TerrainSampler sampler,
+        int lowestY,
+        int highestY
 ) {
+    /** The dimension this map generates. */
+    public MapConfig.DimensionTarget dimension() {
+        return this.config.target();
+    }
+
     public int width() {
         return this.heightmap.width();
     }
@@ -59,6 +72,7 @@ public record MapPack(
     /** All block ids named by the pack ({@code blocks.default} and the surface layers of biomes.json), without duplicates. */
     public List<String> blockIds() {
         java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>(this.config.blocks().defaultBlock().ids());
+        ids.addAll(this.config.blocks().ceiling().ids());
         for (BiomeMapping.Variant v : this.biomeMapping.slots()) {
             ids.addAll(v.blockIds());
         }
@@ -67,8 +81,12 @@ public record MapPack(
 
     /** One-line summary for the UI and logs. */
     public String summary() {
+        return this.terrainSummary() + (this.hasDatapack() ? ", datapack" : "");
+    }
+
+    /** {@link #summary()} without the datapack (shared by the maps of a ZIP). */
+    public String terrainSummary() {
         return this.width() + "x" + this.height() + " px, " + this.heightmap.bitDepth() + "-bit, Y " + this.layout.minY() + ".."
-                + this.layout.maxY() + ", " + this.biomeMapping.entries().size() + " biome(s), " + this.structures.size() + " structure(s)"
-                + (this.hasDatapack() ? ", datapack" : "");
+                + this.layout.maxY() + ", " + this.biomeMapping.entries().size() + " biome(s), " + this.structures.size() + " structure(s)";
     }
 }

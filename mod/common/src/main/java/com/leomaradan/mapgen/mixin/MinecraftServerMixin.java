@@ -38,7 +38,7 @@ public abstract class MinecraftServerMixin {
             return;
         }
         MapPacks.onServerStarting(server.getWorldPath(LevelResource.ROOT), packIds);
-        packIds.forEach(MapPacks::get);
+        packIds.forEach(MapPacks::archive);
     }
 
     /**

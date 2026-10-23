@@ -54,6 +54,27 @@ describe('editor-only data', () => {
   });
 });
 
+describe('dimensions', () => {
+  it('refuses a ZIP with one map per dimension', () => {
+    expect(() => importZip(example('example-dimensions.zip'))).toThrow(/one map per dimension/);
+  });
+});
+
+describe('bottom and ceiling maps', () => {
+  it('keeps them through import and export', () => {
+    const files = unzipSync(example('example.zip'));
+    const config = JSON.parse(strFromU8(files['map.json']));
+    config.files = { ceiling: 'maps/roof.png', water: null };
+    files['map.json'] = strToU8(JSON.stringify(config));
+    files['bottom.png'] = files['heightmap.png'];
+    files['maps/roof.png'] = files['heightmap.png'];
+    const exported = unzipSync(exportZip(importZip(zipSync(files)).project));
+    expect(exported['bottom.png']).toEqual(files['heightmap.png']);
+    expect(exported['ceiling.png']).toEqual(files['heightmap.png']);
+    expect(exported['water.png']).toBeUndefined();
+  });
+});
+
 describe('fluid layers', () => {
   it('imports the water and lava maps as read-only layers without editor.json', () => {
     const { project } = importZip(example('example.zip'));

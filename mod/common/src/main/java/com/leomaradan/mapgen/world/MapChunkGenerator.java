@@ -121,7 +121,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
      * @param features placed features allowed in each slot, null when biomes.json filters no feature
      */
     private record Loaded(MapPack pack, TerrainSampler sampler, List<Surface> surfaces, Surface outsideSurface, Palette defaultBlock,
-                          boolean bedrock, MapStructures structures, List<MapConfig.Carvers> carvers, @Nullable List<Set<PlacedFeature>> features) {
+                          Palette ceiling, boolean bedrock, MapStructures structures, List<MapConfig.Carvers> carvers, @Nullable List<Set<PlacedFeature>> features) {
         /** Index in the per-slot lists: the slot, or the last element for the outside biome. */
         int index(int slot) {
             return slot >= 0 && slot < this.surfaces.size() ? slot : this.surfaces.size();
@@ -234,7 +234,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             synchronized (this) {
                 l = this.loaded;
                 if (l == null) {
-                    l = this.load(MapPacks.get(this.settings.pack()));
+                    l = this.load(MapPacks.get(this.settings.pack(), this.settings.dimension()));
                     this.loaded = l;
                 }
             }
@@ -262,7 +262,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
         Surface outside = surfaceFor(this.mapBiomes.outsideBiome(), null);
         Palette defaultBlock = palette(pack.config().blocks().defaultBlock(), Blocks.STONE.defaultBlockState());
-        return new Loaded(pack, pack.sampler(), List.copyOf(surfaces), outside, defaultBlock, pack.config().blocks().bedrock(), new MapStructures(pack),
+        Palette ceiling = palette(pack.config().blocks().ceiling(), Blocks.STONE.defaultBlockState());
+        return new Loaded(pack, pack.sampler(), List.copyOf(surfaces), outside, defaultBlock, ceiling, pack.config().blocks().bedrock(),
+                new MapStructures(pack),
                 List.copyOf(carvers), features == null ? null : List.copyOf(features));
     }
 
@@ -329,20 +331,30 @@ public final class MapChunkGenerator extends ChunkGenerator {
     // Terrain
     // ------------------------------------------------------------------------------------------
 
-    /** Block at {@code y} for the sampled column at {@code x, z}. */
-    private BlockState stateAt(@Nullable Loaded l, TerrainSampler.Column column, int x, int y, int z, int minY) {
-        if (column.terrainY == TerrainSampler.NONE) {
+    /** Block at {@code y} for the sampled column at {@code x, z}, in a world from {@code minY} to {@code maxY}. */
+    private BlockState stateAt(@Nullable Loaded l, TerrainSampler.Column column, int x, int y, int z, int minY, int maxY) {
+        if (l != null && column.ceilingY != TerrainSampler.NONE && y >= column.ceilingY) {
+            return y == maxY && l.bedrock ? Blocks.BEDROCK.defaultBlockState() : l.ceiling.at(x, y, z);
+        }
+        if (column.terrainY == TerrainSampler.NONE || (column.bottomY != TerrainSampler.NONE && y < column.bottomY)) {
             return Blocks.AIR.defaultBlockState();
         }
         if (y > column.terrainY) {
-            if (y <= column.fluidTop()) {
-                return column.isLava() ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
-            }
-            return Blocks.AIR.defaultBlockState();
+            return fluidOrAir(column, y);
         }
-        if (l == null) {
-            return unconfiguredGround(column, y, minY);
+        return l == null ? unconfiguredGround(column, y, minY) : groundState(l, column, x, y, z, minY);
+    }
+
+    /** Above the ground: the column's water or lava up to its surface, then air. */
+    private static BlockState fluidOrAir(TerrainSampler.Column column, int y) {
+        if (y <= column.fluidTop()) {
+            return column.isLava() ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
         }
+        return Blocks.AIR.defaultBlockState();
+    }
+
+    /** The ground of a map: bedrock at the bottom of the world, then the biome's surface layers over the default blocks. */
+    private static BlockState groundState(Loaded l, TerrainSampler.Column column, int x, int y, int z, int minY) {
         if (y == minY && l.bedrock) {
             return Blocks.BEDROCK.defaultBlockState();
         }
@@ -472,7 +484,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             for (int dx = 0; dx < 16; dx++) {
                 for (int dz = 0; dz < 16; dz++) {
                     this.sample(l, pos.getBlockX(dx), pos.getBlockZ(dz), column);
-                    if (column.terrainY != TerrainSampler.NONE) {
+                    if (column.terrainY != TerrainSampler.NONE || column.ceilingY != TerrainSampler.NONE) {
                         this.fillColumn(l, chunk, column, dx, dz, acquired);
                     }
                 }
@@ -492,9 +504,12 @@ public final class MapChunkGenerator extends ChunkGenerator {
         int x = chunk.getPos().getBlockX(dx);
         int z = chunk.getPos().getBlockZ(dz);
         // Not Math.clamp: the terrain can be above the world top (explicit dimension), which clamp rejects.
-        int top = Math.min(chunk.getMaxY(), Math.max(column.terrainY, column.fluidTop()));
-        for (int y = minY; y <= top; y++) {
-            BlockState state = this.stateAt(l, column, x, y, z, minY);
+        int surface = Math.min(chunk.getMaxY(), Math.max(column.terrainY, column.fluidTop()));
+        // A ceiling goes up to the top of the world; the generation heightmaps keep the floor under it.
+        int top = column.ceilingY == TerrainSampler.NONE ? surface : chunk.getMaxY();
+        int bottom = column.bottomY == TerrainSampler.NONE ? minY : Math.max(minY, column.bottomY);
+        for (int y = bottom; y <= top; y++) {
+            BlockState state = this.stateAt(l, column, x, y, z, minY, chunk.getMaxY());
             if (state.isAir()) {
                 continue;
             }
@@ -503,7 +518,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 section.acquire();
             }
             section.setBlockState(dx, SectionPos.sectionRelative(y), dz, state, false);
-            if (y >= top - 1 || y == column.terrainY) {
+            if (y <= surface && (y >= surface - 1 || y == column.terrainY)) {
                 oceanFloor.update(dx, y, dz, state);
                 worldSurface.update(dx, y, dz, state);
             }
@@ -670,13 +685,13 @@ public final class MapChunkGenerator extends ChunkGenerator {
         int maxY = heightAccessor.getMaxY();
         int fluidTop = column.fluidTop();
         if (fluidTop != TerrainSampler.NONE) {
-            BlockState fluid = this.stateAt(l, column, x, Math.min(fluidTop, maxY), z, minY);
+            BlockState fluid = this.stateAt(l, column, x, Math.min(fluidTop, maxY), z, minY, maxY);
             if (type.isOpaque().test(fluid)) {
                 return Math.min(fluidTop, maxY) + 1;
             }
         }
         for (int y = Math.min(column.terrainY, maxY); y >= minY; y--) {
-            if (type.isOpaque().test(this.stateAt(l, column, x, y, z, minY))) {
+            if (type.isOpaque().test(this.stateAt(l, column, x, y, z, minY, maxY))) {
                 return y + 1;
             }
         }
@@ -690,7 +705,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
         int minY = heightAccessor.getMinY();
         BlockState[] states = new BlockState[heightAccessor.getHeight()];
         for (int i = 0; i < states.length; i++) {
-            states[i] = this.stateAt(l, column, x, minY + i, z, minY);
+            states[i] = this.stateAt(l, column, x, minY + i, z, minY, heightAccessor.getMaxY());
         }
         return new NoiseColumn(minY, states);
     }

@@ -77,6 +77,9 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
   const files = stripRoot(unzipSync(zipBytes));
   const config = files['map.json'] ? parseJson(files['map.json'], 'map.json') : null;
   if (!config) throw new Error('map.json is missing');
+  if (config.dimensions !== undefined) {
+    throw new Error('This ZIP has one map per dimension ("dimensions" in map.json): the editor can\'t open it yet');
+  }
   const fileNames = {
     heightmap: 'heightmap.png',
     biomes: 'biomes.png',
@@ -85,7 +88,9 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
     lava: 'lava.png',
     structures: 'structures.json',
     datapack: 'datapack/',
-    ...((config.files as Record<string, string> | undefined) ?? {}),
+    bottom: 'bottom.png',
+    ceiling: 'ceiling.png',
+    ...((config.files as Record<string, string | null> | undefined) ?? {}),
   };
   delete config.files;
   delete config.$schema;
@@ -294,9 +299,16 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
   }
   const hiddenColors = new Set((editor?.hiddenBiomes as string[] | undefined) ?? []);
   for (const b of project.biomes) if (hiddenColors.has(b.color)) b.hidden = true;
-  const dp = folderOf(fileNames.datapack);
-  for (const [path, bytes] of Object.entries(files)) {
-    if (path.startsWith(dp)) project.passthrough[`datapack/${path.slice(dp.length)}`] = bytes;
+  if (fileNames.datapack) {
+    const dp = folderOf(fileNames.datapack);
+    for (const [path, bytes] of Object.entries(files)) {
+      if (path.startsWith(dp)) project.passthrough[`datapack/${path.slice(dp.length)}`] = bytes;
+    }
+  }
+  // Bottom and ceiling maps: not edited, kept as they are (under their default names).
+  for (const key of ['bottom', 'ceiling'] as const) {
+    const name = fileNames[key];
+    if (name && files[name]) project.passthrough[`${key}.png`] = files[name];
   }
   if (typeof editor?.nextId === 'number') project.nextId = Math.max(project.nextId, editor.nextId);
   return { project, warnings };

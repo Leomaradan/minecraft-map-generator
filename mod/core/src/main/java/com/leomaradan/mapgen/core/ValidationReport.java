@@ -34,6 +34,12 @@ public final class ValidationReport {
         this.warnings.addAll(other.warnings);
     }
 
+    /** Adds the messages of another report, each starting with {@code prefix}. */
+    public void addAll(ValidationReport other, String prefix) {
+        other.errors.forEach(e -> this.errors.add(prefix + e));
+        other.warnings.forEach(w -> this.warnings.add(prefix + w));
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

@@ -1,6 +1,7 @@
 package com.leomaradan.mapgen.client;
 
 import com.leomaradan.mapgen.MapGen;
+import com.leomaradan.mapgen.core.MapArchive;
 import com.leomaradan.mapgen.core.MapPack;
 import com.leomaradan.mapgen.core.StructureEntry;
 import com.leomaradan.mapgen.core.ValidationReport;
@@ -20,6 +21,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.packs.repository.PackRepository;
+import net.minecraft.world.level.levelgen.WorldDimensions;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
@@ -39,9 +41,9 @@ import java.util.stream.Stream;
  * generator is replaced by a {@link MapChunkGenerator} for the pack.
  */
 public final class ClientMaps {
-    private static @Nullable MapPack selected;
+    private static @Nullable MapArchive selected;
     /** Pack waiting for the datapack reload to finish before its generator can be built. */
-    private static @Nullable MapPack pendingAfterReload;
+    private static @Nullable MapArchive pendingAfterReload;
     /** Datapack folders written into the current screen's temporary datapack folder. */
     private static final List<String> installed = new ArrayList<>();
     private static @Nullable CreateWorldScreen currentScreen;
@@ -69,7 +71,7 @@ public final class ClientMaps {
         }
     }
 
-    public static @Nullable MapPack selected() {
+    public static @Nullable MapArchive selected() {
         return selected;
     }
 
@@ -88,15 +90,23 @@ public final class ClientMaps {
 
     /** True when the map world type is selected but no valid ZIP has been applied. */
     public static boolean needsSelection(WorldCreationUiState state) {
-        return isMapPreset(state) && !(state.getSettings().selectedDimensions().overworld() instanceof MapChunkGenerator generator
-                && generator.settings().isConfigured());
+        return isMapPreset(state) && state.getSettings().selectedDimensions().dimensions().values().stream()
+                .noneMatch(stem -> stem.generator() instanceof MapChunkGenerator generator && generator.settings().isConfigured());
     }
 
     /**
      * Checks what can be checked before the datapacks are reloaded: ids must exist in the current
      * registries or be defined by the ZIP's own datapack.
      */
-    public static void validateAgainst(MapPack pack, WorldCreationContext context, ValidationReport report) {
+    public static void validateAgainst(MapArchive archive, WorldCreationContext context, ValidationReport report) {
+        for (MapPack pack : archive.dimensions()) {
+            ValidationReport own = new ValidationReport();
+            validateAgainst(pack, context, own);
+            report.addAll(own, archive.dimensions().size() > 1 ? pack.dimension().id() + ": " : "");
+        }
+    }
+
+    private static void validateAgainst(MapPack pack, WorldCreationContext context, ValidationReport report) {
         var biomes = context.worldgenLoadContext().lookupOrThrow(Registries.BIOME);
         for (String id : pack.biomeIds()) {
             Identifier key = Identifier.parse(id);
@@ -123,7 +133,7 @@ public final class ClientMaps {
     }
 
     /** Applies a validated pack to the Create World screen. */
-    public static void apply(CreateWorldScreen screen, MapPack pack) {
+    public static void apply(CreateWorldScreen screen, MapArchive pack) {
         MapPacks.register(pack);
         selected = pack;
         WorldCreationUiState state = screen.getUiState();
@@ -166,7 +176,7 @@ public final class ClientMaps {
 
     /** Called whenever the screen's settings are replaced (in particular after a datapack reload). */
     public static void onSettingsReplaced(WorldCreationUiState state) {
-        MapPack pack = pendingAfterReload;
+        MapArchive pack = pendingAfterReload;
         if (pack == null) {
             return;
         }
@@ -174,16 +184,19 @@ public final class ClientMaps {
         buildGenerator(state, pack);
     }
 
-    private static void buildGenerator(WorldCreationUiState state, MapPack pack) {
+    private static void buildGenerator(WorldCreationUiState state, MapArchive pack) {
         ValidationReport report = new ValidationReport();
-        MapChunkGenerator generator = MapWorlds.createGenerator(pack, state.getSettings().worldgenLoadContext().lookupOrThrow(Registries.BIOME), report);
-        if (generator == null) {
+        WorldCreationContext context = state.getSettings();
+        WorldDimensions configured = MapWorlds.configureDimensions(pack, context.selectedDimensions(), context.datapackDimensions(),
+                context.worldgenLoadContext(), report);
+        if (configured == null) {
             selected = null;
             MapGen.LOG.error("Map {} can't be used:\n{}", pack.name(), report);
             fail(Component.literal(report.errors().getFirst()));
             return;
         }
-        state.updateDimensions((registries, dimensions) -> dimensions.replaceOverworldGenerator(registries, generator));
+        report.warnings().forEach(w -> MapGen.LOG.warn("[{}] {}", pack.name(), w));
+        state.updateDimensions((registries, dimensions) -> configured);
         MapGen.LOG.info("Selected map {} ({})", pack.name(), pack.summary());
     }
 
