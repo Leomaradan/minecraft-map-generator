@@ -45,7 +45,7 @@ format 121) holds the 26.3 versions. The example ZIPs are the same on both branc
 |---|---|
 | Fabric (+ Fabric API) | Supported |
 | NeoForge | Supported |
-| Quilt | Not tested; Quilt runs Fabric mods, so the Fabric jar should work if Quilt supports 26.1 / 26.2 |
+| Quilt | Not tested; Quilt runs Fabric mods with the Fabric jar. The jar accepts Fabric Loader 0.18.4 and later (what Fabric API requires), so stable Quilt (reported as Fabric Loader 0.19.3) is accepted |
 | Forge | Not supported: there is no Forge for 26.x in the MultiLoader toolchain used here |
 | LiteLoader | Not possible: LiteLoader stopped at Minecraft 1.12.2 |
 
