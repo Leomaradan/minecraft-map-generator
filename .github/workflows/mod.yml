@@ -1,8 +1,11 @@
 name: Minecraft mod
 
+# Builds the mod on every change under mod/ and publishes one artifact per mod loader,
+# each containing only the mod jar (no sources or javadoc jars).
+
 on:
   push:
-    branches: 
+    branches:
       - main
     paths:
       - 'mod/**'
@@ -11,6 +14,11 @@ on:
     paths:
       - 'mod/**'
       - '.github/workflows/mod.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -20,21 +28,46 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
+          # 21 for the core toolchain, 25 (last = default) for Minecraft and to run Gradle.
           java-version: |
             21
             25
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           build-root-directory: mod
+
+      - name: Read mod properties
+        id: mod
+        run: echo "mod_id=$(sed -n 's/^mod_id=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+
       - name: Build and test
         run: ./gradlew build
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload Fabric jar
+        uses: actions/upload-artifact@v4
         with:
-          name: mapgen-jars
+          name: ${{ steps.mod.outputs.mod_id }}-fabric
           path: |
             mod/fabric/build/libs/*.jar
+            !mod/fabric/build/libs/*-sources.jar
+            !mod/fabric/build/libs/*-javadoc.jar
+          if-no-files-found: error
+
+      - name: Upload NeoForge jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.mod.outputs.mod_id }}-neoforge
+          path: |
             mod/neoforge/build/libs/*.jar
+            !mod/neoforge/build/libs/*-sources.jar
+            !mod/neoforge/build/libs/*-javadoc.jar
+          if-no-files-found: error
