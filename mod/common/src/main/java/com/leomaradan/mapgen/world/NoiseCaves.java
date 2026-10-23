@@ -20,6 +20,8 @@ import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -62,7 +64,7 @@ public final class NoiseCaves {
     /** The functions with their noises created from a world's seed, for the last RandomState used. */
     private final AtomicReference<@Nullable Wired> wired = new AtomicReference<>();
 
-    private record Wired(RandomState randomState, DensityFunction[] functions) {
+    private record Wired(RandomState randomState, List<DensityFunction> functions) {
     }
 
     private NoiseCaves(DensityFunction[] functions) {
@@ -103,7 +105,7 @@ public final class NoiseCaves {
     }
 
     /** The functions with their noises created from the world's seed, as RandomState does for the noise router. */
-    private DensityFunction[] wire(RandomState randomState) {
+    private List<DensityFunction> wire(RandomState randomState) {
         Wired w = this.wired.get();
         if (w != null && w.randomState() == randomState) {
             return w.functions();
@@ -120,12 +122,9 @@ public final class NoiseCaves {
                 return new DensityFunction.NoiseHolder(data, randomState.getOrCreateNoise(data.unwrapKey().orElseThrow()));
             }
         };
-        DensityFunction[] functions = new DensityFunction[COMPONENTS];
-        for (int c = 0; c < COMPONENTS; c++) {
-            functions[c] = this.functions[c].mapAll(visitor);
-        }
-        this.wired.set(new Wired(randomState, functions));
-        return functions;
+        List<DensityFunction> bound = Arrays.stream(this.functions).map(f -> f.mapAll(visitor)).toList();
+        this.wired.set(new Wired(randomState, bound));
+        return bound;
     }
 
     /** Which columns of the chunk get noise caves, and how they are protected. */
@@ -198,9 +197,9 @@ public final class NoiseCaves {
     /** Samples every component at the corners of the cells of a chunk. */
     private float[][] sampleCorners(ChunkPos pos, int minY, int cellsY, RandomState randomState) {
         float[][] corners = new float[COMPONENTS][CORNERS_XZ * CORNERS_XZ * (cellsY + 1)];
-        DensityFunction[] functions = this.wire(randomState);
+        List<DensityFunction> bound = this.wire(randomState);
         for (int c = 0; c < COMPONENTS; c++) {
-            DensityFunction function = functions[c];
+            DensityFunction function = bound.get(c);
             for (int i = 0; i < corners[c].length; i++) {
                 int cy = i % (cellsY + 1);
                 int cz = i / (cellsY + 1) % CORNERS_XZ;

@@ -609,10 +609,10 @@ public final class MapChunkGenerator extends ChunkGenerator {
         NoiseBasedChunkGenerator generator = this.carvingGenerator.get();
         if (generator == null) {
             NoiseGeneratorSettings d = NoiseGeneratorSettings.dummy();
-            NoiseGeneratorSettings settings = new NoiseGeneratorSettings(NoiseSettings.create(this.getMinY(), this.getGenDepth(), 1, 2), d.defaultBlock(),
+            NoiseGeneratorSettings noiseSettings = new NoiseGeneratorSettings(NoiseSettings.create(this.getMinY(), this.getGenDepth(), 1, 2), d.defaultBlock(),
                     d.defaultFluid(), d.noiseRouter(), d.surfaceRule(), d.spawnTarget(), d.seaLevel(), d.disableMobGeneration(), d.aquifersEnabled(),
                     d.oreVeinsEnabled(), d.useLegacyRandomSource());
-            generator = new NoiseBasedChunkGenerator(this.biomeSource, Holder.direct(settings));
+            generator = new NoiseBasedChunkGenerator(this.biomeSource, Holder.direct(noiseSettings));
             this.carvingGenerator.set(generator);
         }
         return generator;
@@ -629,22 +629,21 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 int worldX = pos.getBlockX(x);
                 int worldZ = pos.getBlockZ(z);
                 for (int y = maxY; y >= minY; y--) {
-                    if (!mask.get(x, y, z)) {
-                        continue;
+                    if (mask.get(x, y, z)) {
+                        carveMaskedBlock(chunk, blockPos.set(worldX, y, worldZ), neighbor, lavaLevel);
                     }
-                    blockPos.set(worldX, y, worldZ);
-                    BlockState state = chunk.getBlockState(blockPos);
-                    // Bedrock: 26.3's uncarvable tag.
-                    if (state.isAir() || state.is(Blocks.BEDROCK) || !state.getFluidState().isEmpty()) {
-                        continue;
-                    }
-                    if (touchesFluid(chunk, blockPos, neighbor)) {
-                        continue;
-                    }
-                    chunk.setBlockState(blockPos, y <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
                 }
             }
         }
+    }
+
+    /** Carves one block of the mask, unless it is air, bedrock (26.3's uncarvable tag), a fluid or next to a fluid. */
+    private static void carveMaskedBlock(ChunkAccess chunk, BlockPos pos, BlockPos.MutableBlockPos neighbor, int lavaLevel) {
+        BlockState state = chunk.getBlockState(pos);
+        if (state.isAir() || state.is(Blocks.BEDROCK) || !state.getFluidState().isEmpty() || touchesFluid(chunk, pos, neighbor)) {
+            return;
+        }
+        chunk.setBlockState(pos, pos.getY() <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
     }
 
     /** True if a block above or beside (within the chunk) is a fluid: carving there would drain lakes. */
@@ -883,7 +882,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     public @Nullable Pair<BlockPos, Holder<Structure>> findNearestMapStructure(ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos,
                                                                                 int maxSearchRadius, boolean createReference) {
         Loaded l = this.loaded();
-        int radius = l == null ? maxSearchRadius : vanillaSearchRadius(l, level, wantedStructures, pos, maxSearchRadius);
+        int radius = vanillaSearchRadius(l, level, wantedStructures, pos, maxSearchRadius);
         Pair<BlockPos, Holder<Structure>> nearest = super.findNearestMapStructure(level, wantedStructures, pos, radius, createReference);
         if (l == null || !level.getServer().getWorldGenSettings().options().generateStructures()) {
             return nearest;
@@ -915,7 +914,11 @@ public final class MapChunkGenerator extends ChunkGenerator {
      * (creating it when missing): around a map where no candidate is valid, such as an ocean outside,
      * the full search blocks the server and leaves thousands of empty region files.
      */
-    private static int vanillaSearchRadius(Loaded l, ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos, int maxSearchRadius) {
+    private static int vanillaSearchRadius(@Nullable Loaded l, ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos,
+                                           int maxSearchRadius) {
+        if (l == null) {
+            return maxSearchRadius;
+        }
         TerrainSampler s = l.sampler;
         int margin = Math.max(s.endX() - s.originX(), s.endZ() - s.originZ());
         int dx = Math.max(Math.abs(pos.getX() - s.originX()), Math.abs(pos.getX() - s.endX()));

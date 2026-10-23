@@ -45,7 +45,7 @@ public final class ClientCompat {
             MethodHandle onGui = lookup.findVirtual(Gui.class, guiName, type);
             MethodHandle gui = lookup.findGetter(Minecraft.class, "gui", Gui.class);
             return MethodHandles.filterArguments(onGui, 0, gui);
-        } catch (NoSuchMethodException | NoSuchFieldException | IllegalAccessException e) {
+        } catch (NoSuchMethodException | NoSuchFieldException | IllegalAccessException _) {
             // 26.1: the method is on Minecraft.
         }
         try {
