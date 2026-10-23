@@ -30,14 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Installs the pnpm version pinned in site/package.json (packageManager).
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
       - run: mkdir -p dist/examples && cp ../mod/example/*.zip dist/examples/
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name == 'push'
