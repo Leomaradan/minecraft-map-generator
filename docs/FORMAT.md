@@ -15,6 +15,8 @@ biomes.png          optional  biome map (colors), same size as the heightmap
 biomes.json         optional  color -> biome mapping (required with biomes.png)
 water.png           optional  water surface height, same size and bit depth as the heightmap
 lava.png            optional  lava surface height, same size and bit depth as the heightmap
+bottom.png          optional  lowest ground block of each column (floating islands), same size and bit depth
+ceiling.png         optional  start of a solid ceiling (cave worlds), same size and bit depth
 structures.json     optional  structures to place at given coordinates
 structures/*.nbt    optional  structure templates referenced by structures.json
 datapack/           optional  a regular datapack (pack.mcmeta, data/...) installed in the world
@@ -37,6 +39,8 @@ defaults to the name in the list above:
   "biome_mapping": "maps/regions.json",
   "water": "maps/sea.png",
   "lava": "maps/magma.png",
+  "bottom": "maps/underside.png",
+  "ceiling": "maps/roof.png",
   "structures": "structures.json",
   "datapack": "datapack/"
 }
@@ -91,7 +95,35 @@ When `horizontal_scale` is above 1, heights are interpolated (bilinear) between 
 **Empty columns.** With `"outside": {"mode": "void"}` and `"blocks": {"bedrock": false}`, a pixel
 at 0 generates nothing (no ground, no water, no lava), like the void around the map: islands in
 the void, for a sky dimension for example. The other pixels are ground down to the bottom of the
-world, as usual. Otherwise 0 is a normal height.
+world, as usual (or down to the [bottom map](#floating-islands-and-caves)). Otherwise 0 is a
+normal height.
+
+## Floating islands and caves
+
+Two optional maps, with the same size, bit depth and height mapping as the heightmap, shape the
+ground from below and add a roof. In both, a pixel at 0 means "none" for that column.
+
+* **`bottom.png`**: the Y of the lowest ground block. The ground goes from there up to the
+  heightmap, with nothing below: floating islands. Without it (or at 0), the ground goes down to
+  the bottom of the world. Bedrock is only placed when the ground reaches the bottom of the world.
+* **`ceiling.png`**: the Y where a solid ceiling starts, up to the top of the world: cave worlds,
+  like the Nether. The ground, water and lava stay under the ceiling (a ceiling at the ground or
+  below fills the column). The ceiling is made of `blocks.ceiling` (`blocks.default` by default),
+  with bedrock on the top layer of the world when `blocks.bedrock` is on. Structures placed by the
+  map use the floor under the ceiling; surface features (trees, grass...) look for the top of the
+  world, so like in the Nether few of them grow under a ceiling. Underground features (ores, cave
+  vegetation of cave biomes) are not affected.
+
+```json
+"files": { "bottom": "islands/underside.png" },
+"outside": { "mode": "void" },
+"blocks": { "bedrock": false }
+```
+
+For a cave world, give the new dimension a type without sky light, for example
+`"parameters": {"type": {"has_skylight": false, "has_ceiling": true}}` (see
+[Dimensions](#dimensions)). `mod/example/example-dimensions.zip` has a floating island
+(`mapgen:sky`) and a cave world (`mapgen:caves`).
 
 ## World height
 
@@ -445,7 +477,8 @@ Every field is optional. Unknown keys produce a warning.
 | `outside.border` | `true` | Puts a world border around the map when the world is created, so players can't leave it. The border is a square: it fits the longest side of the map, centered on it, so a non-square map has some outside terrain on its short sides. Without a `spawn`, a spawn that vanilla picked outside the border moves to the center of the map. Change it later with `/worldborder`. |
 | `spawn` | vanilla | World spawn. Without `y`, the spawn is on the surface. |
 | `blocks.default` | `minecraft:stone` | Blocks under the surface layers: a block id or a [block list](#block-lists). |
-| `blocks.bedrock` | `true` | Bedrock at the bottom of the world. |
+| `blocks.bedrock` | `true` | Bedrock at the bottom of the world (and at the top above a ceiling). |
+| `blocks.ceiling` | `blocks.default` | Blocks of the ceiling (`ceiling.png`). See [Floating islands and caves](#floating-islands-and-caves). |
 | `snow` | `true` | Where snow layers and ice may form: `true`, `false` or `{min_y, max_y}`. See [Snow](#snow). |
 | `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). An entry of `biomes.json` can override it. |
 | `decoration.features.enabled` | `true` | `false` turns every feature off. |

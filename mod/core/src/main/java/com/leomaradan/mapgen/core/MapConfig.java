@@ -40,6 +40,8 @@ public record MapConfig(
     public static final String FILE_LAVA = "lava";
     public static final String FILE_STRUCTURES = "structures";
     public static final String FILE_DATAPACK = "datapack";
+    public static final String FILE_BOTTOM = "bottom";
+    public static final String FILE_CEILING = "ceiling";
     private static final String KEY_HEIGHT = "height";
     private static final String KEY_MIN_Y = "min_y";
     private static final String KEY_MAX_Y = "max_y";
@@ -58,7 +60,8 @@ public record MapConfig(
      */
     public record Files(String heightmap, boolean explicitHeightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
                         String water, boolean explicitWater, String lava, boolean explicitLava,
-                        String structures, boolean explicitStructures, String datapack) {
+                        String structures, boolean explicitStructures, String datapack,
+                        String bottom, boolean explicitBottom, String ceiling, boolean explicitCeiling) {
     }
 
     /**
@@ -206,7 +209,8 @@ public record MapConfig(
     public record Spawn(int x, int z, Integer y) {
     }
 
-    public record Blocks(BlockPalette defaultBlock, boolean bedrock) {
+    /** @param ceiling blocks of the ceiling ({@code ceiling.png}) */
+    public record Blocks(BlockPalette defaultBlock, boolean bedrock, BlockPalette ceiling) {
     }
 
     public record Decoration(Features features, Carvers carvers) {
@@ -430,12 +434,16 @@ public record MapConfig(
 
     private static Blocks parseBlocks(JsonObject json, ValidationReport report) {
         if (json == null) {
-            return new Blocks(BlockPalette.of(DEFAULT_BLOCK), true);
+            return new Blocks(BlockPalette.of(DEFAULT_BLOCK), true, BlockPalette.of(DEFAULT_BLOCK));
         }
         String bp = "map.json.blocks";
-        Json.checkKnownKeys(json, bp, report, "default", "bedrock");
+        Json.checkKnownKeys(json, bp, report, "default", "bedrock", FILE_CEILING);
         BlockPalette defaultBlock = BlockPalette.parse(json, "default", bp, report);
-        return new Blocks(defaultBlock != null ? defaultBlock : BlockPalette.of(DEFAULT_BLOCK), Json.bool(json, "bedrock", true, bp, report));
+        if (defaultBlock == null) {
+            defaultBlock = BlockPalette.of(DEFAULT_BLOCK);
+        }
+        BlockPalette ceiling = BlockPalette.parse(json, FILE_CEILING, bp, report);
+        return new Blocks(defaultBlock, Json.bool(json, "bedrock", true, bp, report), ceiling != null ? ceiling : defaultBlock);
     }
 
     private static Decoration parseDecoration(JsonObject json, ValidationReport report) {
@@ -471,7 +479,8 @@ public record MapConfig(
             json = new JsonObject();
         }
         String p = "map.json.files";
-        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, FILE_DATAPACK);
+        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, FILE_DATAPACK,
+                FILE_BOTTOM, FILE_CEILING);
         return new Files(
                 file(json, FILE_HEIGHTMAP, "heightmap.png", report), Json.has(json, FILE_HEIGHTMAP),
                 file(json, FILE_BIOMES, "biomes.png", report), Json.has(json, FILE_BIOMES),
@@ -479,7 +488,9 @@ public record MapConfig(
                 file(json, FILE_WATER, "water.png", report), Json.has(json, FILE_WATER),
                 file(json, FILE_LAVA, "lava.png", report), Json.has(json, FILE_LAVA),
                 file(json, FILE_STRUCTURES, "structures.json", report), Json.has(json, FILE_STRUCTURES),
-                json.has(FILE_DATAPACK) && json.get(FILE_DATAPACK).isJsonNull() ? "" : normalizeFolder(Json.string(json, FILE_DATAPACK, "datapack/", p, report)));
+                json.has(FILE_DATAPACK) && json.get(FILE_DATAPACK).isJsonNull() ? "" : normalizeFolder(Json.string(json, FILE_DATAPACK, "datapack/", p, report)),
+                file(json, FILE_BOTTOM, "bottom.png", report), Json.has(json, FILE_BOTTOM),
+                file(json, FILE_CEILING, "ceiling.png", report), Json.has(json, FILE_CEILING));
     }
 
     /** A file path inside the ZIP, with "/" separators and no leading slash; empty for {@code null} (no file). */

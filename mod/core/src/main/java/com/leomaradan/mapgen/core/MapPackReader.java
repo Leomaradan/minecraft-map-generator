@@ -183,8 +183,11 @@ public final class MapPackReader {
         }
 
         // Water and lava: same size and same bit depth as the heightmap.
-        GrayRaster water = readFluid(zip, entries, files.water(), MapConfig.FILE_WATER, files.explicitWater(), heightmap, report);
-        GrayRaster lava = readFluid(zip, entries, files.lava(), MapConfig.FILE_LAVA, files.explicitLava(), heightmap, report);
+        GrayRaster water = readLayer(zip, entries, files.water(), MapConfig.FILE_WATER, files.explicitWater(), heightmap, report);
+        GrayRaster lava = readLayer(zip, entries, files.lava(), MapConfig.FILE_LAVA, files.explicitLava(), heightmap, report);
+        // Bottom and ceiling: same size, bit depth and height mapping as the heightmap.
+        GrayRaster bottom = readLayer(zip, entries, files.bottom(), MapConfig.FILE_BOTTOM, files.explicitBottom(), heightmap, report);
+        GrayRaster ceiling = readLayer(zip, entries, files.ceiling(), MapConfig.FILE_CEILING, files.explicitCeiling(), heightmap, report);
 
         // Biomes
         boolean hasBiomeMapping = !files.biomes().isEmpty() && (files.explicitBiomeMapping() || entries.containsKey(files.biomeMapping()));
@@ -196,12 +199,13 @@ public final class MapPackReader {
                 report);
 
         HeightMapping heightMapping = HeightMapping.resolve(config.height(), heightmap.bitDepth());
-        int[] range = blockRange(config, heightMapping, heightmap, water, lava);
+        int[] range = blockRange(config, heightMapping, heightmap, water, lava, ceiling);
         DimensionLayout layout = DimensionLayout.compute(config.dimension(), DimensionLayout.baseline(config.target()), range[0], range[1], report);
         if (report.hasErrors()) {
             return null;
         }
-        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes, biomeMapping);
+        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, new TerrainSampler.Layers(water, lava, bottom, ceiling), biomes,
+                biomeMapping);
 
         List<StructureEntry> structures = structuresJson == null
                 ? List.of()
@@ -210,7 +214,7 @@ public final class MapPackReader {
         if (report.hasErrors()) {
             return null;
         }
-        return new MapPack(source.id(), name, source.path(), config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
+        return new MapPack(source.id(), name, source.path(), config, heightmap, heightMapping, biomes, biomeMapping, water, lava, bottom, ceiling, structures,
                 templates, datapack, layout, sampler, range[0], range[1]);
     }
 
@@ -286,7 +290,8 @@ public final class MapPackReader {
     }
 
     /** The lowest and highest block Y the map produces. */
-    private static int[] blockRange(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water, GrayRaster lava) {
+    private static int[] blockRange(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water, GrayRaster lava,
+                                    GrayRaster ceiling) {
         // Pixels at 0 are empty when the map floats in the void (see TerrainSampler): they are not the lowest ground.
         boolean emptyAtZero = config.outside().mode() == MapConfig.OutsideMode.VOID && !config.blocks().bedrock();
         int[] range = valueRange(heightmap, emptyAtZero);
@@ -295,7 +300,7 @@ public final class MapPackReader {
         }
         int lowest = mapping.toBlockY(range[0]);
         int highest = mapping.toBlockY(range[1]);
-        for (GrayRaster fluid : new GrayRaster[]{water, lava}) {
+        for (GrayRaster fluid : new GrayRaster[]{water, lava, ceiling}) {
             int max = fluid == null ? 0 : valueRange(fluid, false)[1];
             if (max > 0) {
                 highest = Math.max(highest, mapping.toBlockY(max));
@@ -386,7 +391,7 @@ public final class MapPackReader {
         return path + " is not in the ZIP (named by \"files\": {\"" + key + "\"} in " + CONFIG_FILE + ")";
     }
 
-    private static GrayRaster readFluid(ZipFile zip, Map<String, ZipEntry> entries, String path, String key, boolean explicit,
+    private static GrayRaster readLayer(ZipFile zip, Map<String, ZipEntry> entries, String path, String key, boolean explicit,
                                         GrayRaster heightmap, ValidationReport report) throws IOException {
         if (!entries.containsKey(path)) {
             if (explicit) {
@@ -406,7 +411,7 @@ public final class MapPackReader {
         int depth = GrayRaster.effectiveBitDepth(image);
         if (depth != heightmap.bitDepth()) {
             report.error(path + " is " + depth + "-bit but the heightmap is " + heightmap.bitDepth()
-                    + "-bit; the heightmap, water map and lava map must all use the same bit depth");
+                    + "-bit; the heightmap and the water, lava, bottom and ceiling maps must all use the same bit depth");
             return null;
         }
         return GrayRaster.of(image, path, report);

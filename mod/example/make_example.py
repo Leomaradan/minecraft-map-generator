@@ -9,8 +9,9 @@ example.zip       256x256, 8-bit maps: an island with a mountain lake, a lava po
                   (from the embedded datapack), a structure template and forced structures.
 example-tall.zip  same island with 16-bit maps scaled to a 700-block-high mountain; the world height
                   is raised automatically through a generated dimension type.
-example-dimensions.zip  the island in the overworld, a volcanic island in the Nether and an island in
-                  the void in a new dimension (mapgen:sky), in the "dimensions" format of map.json.
+example-dimensions.zip  the island in the overworld, a volcanic island in the Nether, a floating island
+                  (mapgen:sky, with a bottom map) and a cave world (mapgen:caves, with a ceiling map),
+                  in the "dimensions" format of map.json.
 """
 import gzip
 import io
@@ -270,16 +271,36 @@ def volcano(size=96):
 
 
 def sky_island(size=64):
-    """A round island; 0 around it is empty (the sky map has a void outside and no bedrock)."""
-    heights = []
+    """A round floating island: its top, and its underside (a cone below it). 0 around it is empty
+    (the sky map has a void outside and no bedrock)."""
+    heights, bottoms = [], []
     c = size / 2
     for z in range(size):
-        row = []
+        row, brow = [], []
         for x in range(size):
             d = dist(x, z, c, c) / c
             row.append(0 if d > 0.9 else 140 + (0.9 - d) * 30)
+            brow.append(0 if d > 0.9 else 138 - (0.9 - d) * 60)
         heights.append(row)
-    return heights
+        bottoms.append(brow)
+    return heights, bottoms
+
+
+def cave_world(size=96):
+    """A cave world: a floor with hills and lava pools, under a rolling ceiling."""
+    floors, ceilings, lava = [], [], []
+    for z in range(size):
+        frow, crow, lrow = [], [], []
+        for x in range(size):
+            floor = 40 + 8 * math.sin(x * 0.15) * math.cos(z * 0.12) + 6 * math.sin((x + z) * 0.05)
+            ceiling = 90 + 10 * math.cos(x * 0.09) * math.sin(z * 0.11)
+            frow.append(floor)
+            crow.append(ceiling)
+            lrow.append(38 if floor < 36 else 0)
+        floors.append(frow)
+        ceilings.append(crow)
+        lava.append(lrow)
+    return floors, ceilings, lava
 
 
 def build_dimensions(path):
@@ -305,18 +326,31 @@ def build_dimensions(path):
     }
     sky = {
         "dimension": {"name": "Sky", "parameters": {"type": {"ambient_light": 0.2}}},
-        "files": {"heightmap": "sky/heightmap.png", "water": None, "lava": None, "biomes": None, "structures": None,
-                  "datapack": None},
+        "files": {"heightmap": "sky/heightmap.png", "bottom": "sky/bottom.png", "water": None, "lava": None, "biomes": None,
+                  "structures": None, "datapack": None},
         "outside": {"mode": "void", "biome": "minecraft:cherry_grove"},
         # Void around the map and no bedrock: heightmap pixels at 0 are empty.
         "blocks": {"bedrock": False},
         "decoration": {"carvers": False},
     }
-    config = {"$schema": SCHEMAS + "map.schema.json", "dimensions": [island, nether, sky]}
+    caves = {
+        "dimension": {"name": "caves", "parameters": {"type": {"has_skylight": False, "has_ceiling": True, "ambient_light": 0.1}}},
+        "files": {"heightmap": "caves/floor.png", "ceiling": "caves/ceiling.png", "lava": "caves/lava.png", "water": None,
+                  "biomes": None, "structures": None, "datapack": None},
+        "outside": {"mode": "void", "biome": "minecraft:dripstone_caves"},
+        "blocks": {"default": ["minecraft:stone", "minecraft:deepslate"], "ceiling": "minecraft:deepslate"},
+    }
+    config = {"$schema": SCHEMAS + "map.schema.json", "dimensions": [island, nether, sky, caves]}
+    sky_heights, sky_bottoms = sky_island()
+    cave_floors, cave_ceilings, cave_lava = cave_world()
     extra = {
         "nether/heightmap.png": gray8(nether_heights),
         "nether/lava.png": gray8(nether_lava),
-        "sky/heightmap.png": gray8(sky_island()),
+        "sky/heightmap.png": gray8(sky_heights),
+        "sky/bottom.png": gray8(sky_bottoms),
+        "caves/floor.png": gray8(cave_floors),
+        "caves/ceiling.png": gray8(cave_ceilings),
+        "caves/lava.png": gray8(cave_lava),
     }
     write_zip(path, config, gray8(heights), gray8(water), gray8(lava), rgb(biomes), extra)
 

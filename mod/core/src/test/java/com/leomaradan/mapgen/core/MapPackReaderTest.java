@@ -321,6 +321,36 @@ class MapPackReaderTest {
     }
 
     @Test
+    void readsBottomAndCeiling() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"files\": {\"ceiling\": \"roof.png\"}, \"blocks\": {\"ceiling\": \"minecraft:deepslate\"}}")
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("bottom.png", heightmap8(4, 4))
+                .put("roof.png", heightmap8(4, 4))
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        assertNotNull(result.pack().bottom());
+        assertNotNull(result.pack().ceiling());
+        assertTrue(result.pack().blockIds().contains("minecraft:deepslate"));
+        // Without blocks.ceiling, the ceiling is made of blocks.default.
+        assertEquals(java.util.List.of("minecraft:stone"), MapConfig.parse(new com.google.gson.JsonObject(), new ValidationReport())
+                .blocks().ceiling().ids());
+
+        this.files.clear();
+        MapPackReader.Result none = put("map.json", "{\"files\": {\"bottom\": null}}").put("heightmap.png", heightmap8(4, 4))
+                .put("bottom.png", heightmap8(4, 4)).read();
+        assertTrue(none.ok(), none.report().toString());
+        assertNull(none.pack().bottom());
+        assertNull(none.pack().ceiling());
+
+        this.files.clear();
+        MapPackReader.Result bad = put("map.json", "{\"files\": {\"ceiling\": \"missing.png\"}}").put("heightmap.png", heightmap8(4, 4))
+                .put("bottom.png", heightmap8(2, 2)).read();
+        assertFalse(bad.ok());
+        assertTrue(anyContains(bad.report().errors(), "bottom.png is 2x2 but the heightmap is 4x4"));
+        assertTrue(anyContains(bad.report().errors(), "missing.png is not in the ZIP"));
+    }
+
+    @Test
     void reportsBadDimensionsFormat() throws IOException {
         MapPackReader.Result result = put("map.json", """
                         {"dimensions": [

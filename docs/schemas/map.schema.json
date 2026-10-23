@@ -269,6 +269,24 @@
               ],
               "default": "datapack/",
               "description": "Folder of the embedded datapack; empty to disable. null: the map has no such file."
+            },
+            "bottom": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "bottom.png",
+              "description": "Bottom map (floating islands): lowest ground block of each column; 0 = down to the bottom of the world. Same size and bit depth as the heightmap. Optional under its default name; required in the ZIP when named here. null: the map has no such file.",
+              "minLength": 1
+            },
+            "ceiling": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "ceiling.png",
+              "description": "Ceiling map (cave worlds): lowest block of a ceiling solid up to the top of the world; 0 = no ceiling. Same size and bit depth as the heightmap. Optional under its default name; required in the ZIP when named here. null: the map has no such file.",
+              "minLength": 1
             }
           }
         },
@@ -470,6 +488,10 @@
             "bedrock": {
               "type": "boolean",
               "default": true
+            },
+            "ceiling": {
+              "$ref": "#/$defs/blocks",
+              "description": "Blocks of the ceiling (ceiling map). Default: blocks.default."
             }
           }
         },

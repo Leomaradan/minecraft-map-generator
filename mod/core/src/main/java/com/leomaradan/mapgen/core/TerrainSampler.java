@@ -16,6 +16,8 @@ public final class TerrainSampler {
     private final HeightMapping mapping;
     private final GrayRaster water;
     private final GrayRaster lava;
+    private final GrayRaster bottom;
+    private final GrayRaster ceiling;
     private final BiomeRaster biomes;
     private final BiomeMapping biomeMapping;
     private final MapConfig.Outside outside;
@@ -47,6 +49,10 @@ public final class TerrainSampler {
         public int waterY;
         /** Y of the top lava block, or {@link #NONE}. Lava wins over water. */
         public int lavaY;
+        /** Y of the lowest ground block (floating islands), or {@link #NONE} when the ground goes down to the bottom of the world. */
+        public int bottomY = NONE;
+        /** Y of the lowest block of the ceiling, solid up to the top of the world, or {@link #NONE}. */
+        public int ceilingY = NONE;
         /** Biome slot at the surface (see {@link BiomeMapping}), or -1 for the outside biome. */
         public int biome = -1;
         /** Biome slot from {@link #undergroundTop} down, or -1 when the column has no underground biome. */
@@ -71,12 +77,23 @@ public final class TerrainSampler {
         }
     }
 
+    /** The optional maps of a map, with the same size and height mapping as the heightmap; each one can be null. */
+    public record Layers(GrayRaster water, GrayRaster lava, GrayRaster bottom, GrayRaster ceiling) {
+    }
+
     public TerrainSampler(MapConfig config, GrayRaster heightmap, HeightMapping mapping, GrayRaster water, GrayRaster lava, BiomeRaster biomes,
                           BiomeMapping biomeMapping) {
+        this(config, heightmap, mapping, new Layers(water, lava, null, null), biomes, biomeMapping);
+    }
+
+    public TerrainSampler(MapConfig config, GrayRaster heightmap, HeightMapping mapping, Layers layers, BiomeRaster biomes, BiomeMapping biomeMapping) {
+        GrayRaster water = layers.water();
         this.heightmap = heightmap;
         this.mapping = mapping;
         this.water = water;
-        this.lava = lava;
+        this.lava = layers.lava();
+        this.bottom = layers.bottom();
+        this.ceiling = layers.ceiling();
         this.biomes = biomes;
         this.biomeMapping = biomeMapping;
         this.outside = config.outside();
@@ -138,6 +155,8 @@ public final class TerrainSampler {
     public Column sample(int x, int z, Column out) {
         boolean inside = this.isInside(x, z);
         out.inside = inside;
+        out.bottomY = NONE;
+        out.ceilingY = NONE;
         if (!inside && this.outside.mode() != MapConfig.OutsideMode.EXTEND) {
             out.biome = -1;
             out.undergroundBiome = -1;
@@ -166,10 +185,22 @@ public final class TerrainSampler {
             return out;
         }
         out.terrainY = this.mapping.toBlockY(this.scale > 1 ? this.bilinear(u, v) : this.heightmap.value(px, pz));
-        out.waterY = this.fluid(this.water, px, pz);
-        out.lavaY = this.fluid(this.lava, px, pz);
+        out.waterY = this.layerY(this.water, px, pz);
+        out.lavaY = this.layerY(this.lava, px, pz);
+        out.bottomY = this.layerY(this.bottom, px, pz);
+        out.ceilingY = this.layerY(this.ceiling, px, pz);
+        if (out.ceilingY != NONE) {
+            // Everything stays under the ceiling (a ceiling at the ground or lower fills the column).
+            out.terrainY = Math.min(out.terrainY, out.ceilingY - 1);
+            out.waterY = belowCeiling(out.waterY, out.ceilingY);
+            out.lavaY = belowCeiling(out.lavaY, out.ceilingY);
+        }
         this.resolveBiome(x, z, px, pz, out);
         return out;
+    }
+
+    private static int belowCeiling(int y, int ceilingY) {
+        return y == NONE ? NONE : Math.min(y, ceilingY - 1);
     }
 
     /** Water pixels (water above the ground, not covered by lava) are at distance 0. */
@@ -178,8 +209,8 @@ public final class TerrainSampler {
         for (int pz = 0; pz < this.height; pz++) {
             for (int px = 0; px < this.width; px++) {
                 int ground = this.mapping.toBlockY(this.heightmap.value(px, pz));
-                int waterY = this.fluid(this.water, px, pz);
-                int lavaY = this.fluid(this.lava, px, pz);
+                int waterY = this.layerY(this.water, px, pz);
+                int lavaY = this.layerY(this.lava, px, pz);
                 boolean water = waterY != NONE && waterY > ground && (lavaY == NONE || lavaY <= ground || lavaY < waterY);
                 d[pz * this.width + px] = water ? 0 : DistanceField.FAR;
             }
@@ -282,7 +313,8 @@ public final class TerrainSampler {
         return (rule != null ? rule : this.snow).allows(y);
     }
 
-    private int fluid(GrayRaster raster, int px, int pz) {
+    /** Y given by a water, lava, bottom or ceiling map at a pixel, or {@link #NONE} (no map, or 0). */
+    private int layerY(GrayRaster raster, int px, int pz) {
         if (raster == null) {
             return NONE;
         }
