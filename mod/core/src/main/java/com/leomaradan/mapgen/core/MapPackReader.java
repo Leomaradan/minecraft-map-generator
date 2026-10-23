@@ -126,7 +126,7 @@ public final class MapPackReader {
             String p = CONFIG_FILE + "." + KEY_DIMENSIONS + "[" + i + "]";
             if (!list.get(i).isJsonObject()) {
                 report.error(p + " must be an object (a map.json without $schema)");
-            } else if (!list.get(i).getAsJsonObject().has("dimension")) {
+            } else if (!Json.has(list.get(i).getAsJsonObject(), "dimension")) {
                 report.error(p + ".dimension is required");
             } else {
                 maps.add(list.get(i).getAsJsonObject());

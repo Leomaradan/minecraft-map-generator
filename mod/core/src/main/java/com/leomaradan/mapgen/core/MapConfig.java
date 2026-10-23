@@ -106,6 +106,12 @@ public record MapConfig(
             return this.isVanilla() || (this.custom && (this.type == null || this.type.isJsonObject()));
         }
 
+        /** Whether an inline {@code parameters.type} sets the height itself (then the map is not sized to it). */
+        public boolean typeSetsHeight() {
+            return this.type != null && this.type.isJsonObject()
+                    && (this.type.getAsJsonObject().has("min_y") || this.type.getAsJsonObject().has("height"));
+        }
+
         /** The dimension type id given by {@code parameters.type}, or null. */
         public String typeId() {
             return this.type != null && this.type.isJsonPrimitive() ? Json.normalizeId(this.type.getAsString()) : null;
@@ -399,8 +405,8 @@ public record MapConfig(
         }
 
         HeightSpec height = parseHeight(Json.object(root, KEY_HEIGHT, p, report), report);
-        Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), report);
         DimensionTarget target = DimensionTarget.parse(root, p, report);
+        Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), target, report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
         int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
         if (biomeTransition < 0 || biomeTransition > MAX_BIOME_TRANSITION) {
@@ -541,7 +547,7 @@ public record MapConfig(
         return new HeightSpec(baseY == null ? 0.0 : baseY, scale == null ? 1.0 : scale, null, null);
     }
 
-    private static Dimension parseDimension(JsonObject json, ValidationReport report) {
+    private static Dimension parseDimension(JsonObject json, DimensionTarget target, ValidationReport report) {
         if (json == null) {
             return new Dimension(null, null);
         }
@@ -554,7 +560,7 @@ public record MapConfig(
             if (height != null) {
                 report.error(p + ": use either height or max_y, not both");
             } else {
-                int base = minY != null ? minY : DimensionLayout.VANILLA_MIN_Y;
+                int base = minY != null ? minY : DimensionLayout.baseline(target).minY();
                 height = maxY - base;
             }
         }

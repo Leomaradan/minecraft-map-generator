@@ -188,6 +188,13 @@ class MapPackReaderTest {
         assertEquals(DimensionLayout.NETHER_END, result.pack().layout());
         assertTrue(result.archive().summary().startsWith("minecraft:the_nether, 4x4 px"), result.archive().summary());
         assertTrue(anyContains(result.report().warnings(), "spawn is only used in the overworld"));
+
+        this.files.clear();
+        // max_y counts from the Nether's bottom (Y 0), not the overworld's.
+        MapPackReader.Result top = put("map.json", "{\"dimension\": \"minecraft:the_nether\", \"dimension_parameter\": {\"max_y\": 320}}")
+                .put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(top.ok(), top.report().toString());
+        assertEquals(new DimensionLayout(0, 320), top.pack().layout());
         MapArchive nether = result.archive();
         assertThrows(IllegalArgumentException.class, () -> nether.get("minecraft:overworld"));
 
@@ -223,6 +230,13 @@ class MapPackReaderTest {
         assertTrue(inline.pack().dimension().type().isJsonObject());
         assertNull(inline.pack().dimension().typeId());
         assertTrue(inline.pack().dimension().sizedToMap());
+        assertFalse(inline.pack().dimension().typeSetsHeight());
+
+        this.files.clear();
+        MapPackReader.Result fixed = put("map.json", "{\"dimension\": {\"name\": \"low\", \"parameters\": {\"type\": {\"height\": 128}}}}")
+                .put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(fixed.ok(), fixed.report().toString());
+        assertTrue(fixed.pack().dimension().typeSetsHeight());
     }
 
     @Test
@@ -310,7 +324,8 @@ class MapPackReaderTest {
                           {"dimension": "minecraft:overworld"},
                           {"dimension": "overworld", "files": {"heightmap": "missing.png"}},
                           {"sea_level": 10},
-                          3
+                          3,
+                          {"dimension": null}
                         ], "name": "x"}
                         """)
                 .put("heightmap.png", heightmap8(4, 4))
@@ -318,6 +333,7 @@ class MapPackReaderTest {
         assertFalse(result.ok());
         assertTrue(anyContains(result.report().errors(), "map.json.dimensions[2].dimension is required"));
         assertTrue(anyContains(result.report().errors(), "map.json.dimensions[3] must be an object"));
+        assertTrue(anyContains(result.report().errors(), "map.json.dimensions[4].dimension is required"));
         assertTrue(anyContains(result.report().warnings(), "unknown key \"name\""));
 
         this.files.clear();

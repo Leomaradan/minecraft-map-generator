@@ -108,7 +108,7 @@ public final class MapWorlds {
             Holder<DimensionType> type = dimensionType(pack.dimension(), key, stems, datapackDimensions, types, own);
             if (type != null) {
                 DimensionType value = type.value();
-                if (!pack.dimension().sizedToMap()) {
+                if (!pack.dimension().sizedToMap() || pack.dimension().typeSetsHeight()) {
                     warnIfCut(pack, value, own);
                 }
                 MapChunkGenerator generator = createGenerator(pack, biomes, value.minY(), value.height(), own);
@@ -163,16 +163,18 @@ public final class MapWorlds {
     /** Extra checks needing registries: blocks and structures named by the maps. */
     public static void validateRegistries(MapArchive archive, HolderGetter<Structure> structures, ValidationReport report) {
         for (MapPack pack : archive.dimensions()) {
+            ValidationReport own = new ValidationReport();
             for (String block : pack.blockIds()) {
                 if (BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
-                    report.error("block " + block + DOES_NOT_EXIST);
+                    own.error("block " + block + DOES_NOT_EXIST);
                 }
             }
             for (StructureEntry entry : pack.structures()) {
                 if (entry instanceof StructureEntry.Structure structure) {
-                    reportMissingStructure(structure, id -> structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(id))).isPresent(), report);
+                    reportMissingStructure(structure, id -> structures.get(ResourceKey.create(Registries.STRUCTURE, Identifier.parse(id))).isPresent(), own);
                 }
             }
+            report.addAll(own, archive.dimensions().size() > 1 ? pack.dimension().id() + ": " : "");
         }
     }
 
@@ -289,6 +291,10 @@ public final class MapWorlds {
             if (target.type() != null) {
                 for (Map.Entry<String, JsonElement> field : target.type().getAsJsonObject().entrySet()) {
                     json.add(field.getKey(), field.getValue().deepCopy());
+                }
+                // A type setting its own height keeps a logical height within it.
+                if (json.get(LOGICAL_HEIGHT).getAsInt() > json.get("height").getAsInt()) {
+                    json.add(LOGICAL_HEIGHT, json.get("height").deepCopy());
                 }
             }
         } else {
