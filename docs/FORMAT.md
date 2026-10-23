@@ -1,12 +1,16 @@
 # Map ZIP format
 
-A map is a ZIP file. Only `map.json` and the heightmap are required. File names below are the
-defaults; they can be changed in `map.json` (`files`). If everything is inside a single top-level
-folder in the ZIP, that folder is ignored.
+A map is a ZIP file. Only `map.json` and a heightmap are required. If everything is inside a
+single top-level folder in the ZIP, that folder is ignored.
+
+The file names below are the defaults. Every file except `map.json` can have another name or be in
+a sub-folder: name it in `map.json` under `files` (see [File names](#file-names)). For example, a
+ZIP without `heightmap.png` is valid when `map.json` contains
+`"files": {"heightmap": "terrain.png"}`.
 
 ```
-map.json            REQUIRED  world configuration
-heightmap.png       REQUIRED  ground height, 8-bit or 16-bit grayscale
+map.json            REQUIRED  world configuration (always at the root, under this name)
+heightmap.png       REQUIRED  ground height, 8-bit or 16-bit grayscale (or the file named in files.heightmap)
 biomes.png          optional  biome map (colors), same size as the heightmap
 biomes.json         optional  color -> biome mapping (required with biomes.png)
 water.png           optional  water surface height, same size and bit depth as the heightmap
@@ -18,6 +22,30 @@ datapack/           optional  a regular datapack (pack.mcmeta, data/...) install
 
 `mod/example/make_example.py` builds two complete examples (`mod/example/example.zip`,
 `mod/example/example-tall.zip`).
+
+## File names
+
+`files` in `map.json` gives the path, inside the ZIP, of each file. Each key is optional and
+defaults to the name in the list above:
+
+```json
+"files": {
+  "heightmap": "maps/terrain-16bit.png",
+  "biomes": "maps/regions.png",
+  "biome_mapping": "maps/regions.json",
+  "water": "maps/sea.png",
+  "lava": "maps/magma.png",
+  "structures": "structures.json",
+  "datapack": "datapack/"
+}
+```
+
+* A file named in `files` must be in the ZIP, otherwise the map is rejected.
+* A file left to its default name is only read if the ZIP contains it; the heightmap is the
+  exception, since a map always needs one.
+* When a file has another name, the default name is ignored: with `"water": "sea.png"`, a
+  `water.png` in the ZIP is not read.
+* Paths use `/` (a `\` is accepted and converted); a leading `/` is ignored.
 
 ## JSON Schemas
 
@@ -63,7 +91,7 @@ ground or fluid (never below vanilla's 320). When that differs from vanilla, the
 small datapack in the world that changes the overworld height. Minecraft's limits: Y from -2032
 to 2031, at most 4064 blocks tall; terrain outside the limits is cut (with a warning).
 
-You can also set the height yourself: `"dimension": {"min_y": -64, "height": 1024}` (or
+You can also set the height yourself: `"dimension_parameter": {"min_y": -64, "height": 1024}` (or
 `"max_y"` instead of `"height"`); both must be multiples of 16.
 
 ## Water and lava maps
@@ -269,7 +297,7 @@ Every field is optional. Unknown keys produce a warning.
   "origin": [-512, -512],
   "horizontal_scale": 1,
   "height": { "base_y": 0, "scale": 1 },
-  "dimension": { "min_y": -64, "height": 384 },
+  "dimension_parameter": { "min_y": -64, "height": 384 },
   "sea_level": 63,
   "biome_transition": 4,
   "outside": {
@@ -303,7 +331,8 @@ Every field is optional. Unknown keys produce a warning.
 | `origin` | centered | World X, Z of pixel (0, 0). |
 | `horizontal_scale` | `1` | Blocks per pixel (`2` makes a 1024 px map 2048 blocks wide). |
 | `height` | see above | Value-to-Y mapping, `{base_y, scale}` or `{min_y, max_y}`. |
-| `dimension` | automatic | World bottom and height (multiples of 16). |
+| `files` | default names | Paths of the other files in the ZIP. See [File names](#file-names). |
+| `dimension_parameter` | automatic | World bottom and height (multiples of 16). |
 | `sea_level` | `63` | Minecraft's sea level (mob spawning, some features). It does **not** add water; use the water map. |
 | `biome_transition` | `4` | Biome borders are shifted by up to this many blocks (0 to 64) so they look natural; `0` keeps pixel borders. See [Biome transitions](#biome-transitions). |
 | `outside.mode` | `flat` | Around the map: `flat` (ground at `ground_level`, water up to `water_level`), `void` (nothing), `extend` (border pixels extended). |

@@ -91,8 +91,15 @@ public final class MapPackReader {
                 ? configJson.getAsJsonObject().get("name").getAsString()
                 : stripExtension(zipPath.getFileName().toString());
 
-        // Heightmap (required)
-        PngImage heightImage = readPng(zip, entries, files.heightmap(), true, report);
+        // Heightmap (required, under its default name or the one given in map.json)
+        if (!entries.containsKey(files.heightmap())) {
+            report.error(files.explicitHeightmap()
+                    ? missing(files.heightmap(), "heightmap")
+                    : "the ZIP has no heightmap: add " + files.heightmap() + ", or name your heightmap file in map.json with "
+                    + "\"files\": {\"heightmap\": \"<file>.png\"}");
+            return null;
+        }
+        PngImage heightImage = readPng(zip, entries, files.heightmap(), report);
         if (heightImage == null) {
             return null;
         }
@@ -103,8 +110,8 @@ public final class MapPackReader {
         int bitDepth = heightmap.bitDepth();
 
         // Water and lava: same size and same bit depth as the heightmap.
-        GrayRaster water = readFluid(zip, entries, files.water(), files.explicitWater(), heightmap, report);
-        GrayRaster lava = readFluid(zip, entries, files.lava(), files.explicitLava(), heightmap, report);
+        GrayRaster water = readFluid(zip, entries, files.water(), "water", files.explicitWater(), heightmap, report);
+        GrayRaster lava = readFluid(zip, entries, files.lava(), "lava", files.explicitLava(), heightmap, report);
 
         // Biomes
         BiomeMapping biomeMapping = BiomeMapping.EMPTY;
@@ -113,7 +120,7 @@ public final class MapPackReader {
         boolean hasBiomeMapping = files.explicitBiomeMapping() || entries.containsKey(files.biomeMapping());
         if (hasBiomeMapping) {
             if (!entries.containsKey(files.biomeMapping())) {
-                report.error(files.biomeMapping() + " is not in the ZIP");
+                report.error(missing(files.biomeMapping(), "biome_mapping"));
             } else {
                 JsonElement mappingJson = readJson(zip, entries.get(files.biomeMapping()), files.biomeMapping(), report);
                 if (mappingJson != null && mappingJson.isJsonObject()) {
@@ -124,7 +131,12 @@ public final class MapPackReader {
             }
         }
         if (hasBiomeMap) {
-            PngImage biomeImage = readPng(zip, entries, files.biomes(), true, report);
+            PngImage biomeImage = null;
+            if (!entries.containsKey(files.biomes())) {
+                report.error(missing(files.biomes(), "biomes"));
+            } else {
+                biomeImage = readPng(zip, entries, files.biomes(), report);
+            }
             if (biomeImage != null) {
                 if (biomeImage.width() != heightmap.width() || biomeImage.height() != heightmap.height()) {
                     report.error(files.biomes() + " is " + biomeImage.width() + "x" + biomeImage.height() + " but the heightmap is "
@@ -143,7 +155,7 @@ public final class MapPackReader {
         JsonElement structuresJson = null;
         if (files.explicitStructures() || entries.containsKey(files.structures())) {
             if (!entries.containsKey(files.structures())) {
-                report.error(files.structures() + " is not in the ZIP");
+                report.error(missing(files.structures(), "structures"));
             } else {
                 structuresJson = readJson(zip, entries.get(files.structures()), files.structures(), report);
             }
@@ -254,12 +266,20 @@ public final class MapPackReader {
         return true;
     }
 
-    private static GrayRaster readFluid(ZipFile zip, Map<String, ZipEntry> entries, String path, boolean explicit, GrayRaster heightmap,
-                                        ValidationReport report) throws IOException {
-        if (!explicit && !entries.containsKey(path)) {
+    /** Error for a file named in map.json ({@code "files": {key: path}}) but absent from the ZIP. */
+    private static String missing(String path, String key) {
+        return path + " is not in the ZIP (named by \"files\": {\"" + key + "\"} in " + CONFIG_FILE + ")";
+    }
+
+    private static GrayRaster readFluid(ZipFile zip, Map<String, ZipEntry> entries, String path, String key, boolean explicit,
+                                        GrayRaster heightmap, ValidationReport report) throws IOException {
+        if (!entries.containsKey(path)) {
+            if (explicit) {
+                report.error(missing(path, key));
+            }
             return null;
         }
-        PngImage image = readPng(zip, entries, path, true, report);
+        PngImage image = readPng(zip, entries, path, report);
         if (image == null) {
             return null;
         }
@@ -277,16 +297,9 @@ public final class MapPackReader {
         return GrayRaster.of(image, path, report);
     }
 
-    private static PngImage readPng(ZipFile zip, Map<String, ZipEntry> entries, String path, boolean required, ValidationReport report)
-            throws IOException {
-        ZipEntry entry = entries.get(path);
-        if (entry == null) {
-            if (required) {
-                report.error(path + " is not in the ZIP");
-            }
-            return null;
-        }
-        try (InputStream in = zip.getInputStream(entry)) {
+    /** Decodes a PNG that is known to be in the ZIP. */
+    private static PngImage readPng(ZipFile zip, Map<String, ZipEntry> entries, String path, ValidationReport report) throws IOException {
+        try (InputStream in = zip.getInputStream(entries.get(path))) {
             return PngImage.read(in);
         } catch (IOException e) {
             report.error(path + ": " + e.getMessage());

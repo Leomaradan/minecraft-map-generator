@@ -40,7 +40,7 @@ public record MapConfig(
     private static final String VANILLA_STRUCTURES = "vanilla_structures";
 
     /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
-    public record Files(String heightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
+    public record Files(String heightmap, boolean explicitHeightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
                         String water, boolean explicitWater, String lava, boolean explicitLava,
                         String structures, boolean explicitStructures, String datapack) {
     }
@@ -239,7 +239,7 @@ public record MapConfig(
 
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
-        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension", "sea_level",
+        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension_parameter", "sea_level",
                 "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
@@ -268,7 +268,7 @@ public record MapConfig(
         }
 
         HeightSpec height = parseHeight(Json.object(root, "height", p, report), report);
-        Dimension dimension = parseDimension(Json.object(root, "dimension", p, report), report);
+        Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
         int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
         if (biomeTransition < 0 || biomeTransition > MAX_BIOME_TRANSITION) {
@@ -332,13 +332,26 @@ public record MapConfig(
         String p = "map.json.files";
         Json.checkKnownKeys(json, p, report, "heightmap", "biomes", "biome_mapping", "water", "lava", "structures", "datapack");
         return new Files(
-                Json.string(json, "heightmap", "heightmap.png", p, report),
-                Json.string(json, "biomes", "biomes.png", p, report), Json.has(json, "biomes"),
-                Json.string(json, "biome_mapping", "biomes.json", p, report), Json.has(json, "biome_mapping"),
-                Json.string(json, "water", "water.png", p, report), Json.has(json, "water"),
-                Json.string(json, "lava", "lava.png", p, report), Json.has(json, "lava"),
-                Json.string(json, "structures", "structures.json", p, report), Json.has(json, "structures"),
+                file(json, "heightmap", "heightmap.png", report), Json.has(json, "heightmap"),
+                file(json, "biomes", "biomes.png", report), Json.has(json, "biomes"),
+                file(json, "biome_mapping", "biomes.json", report), Json.has(json, "biome_mapping"),
+                file(json, "water", "water.png", report), Json.has(json, "water"),
+                file(json, "lava", "lava.png", report), Json.has(json, "lava"),
+                file(json, "structures", "structures.json", report), Json.has(json, "structures"),
                 normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
+    }
+
+    /** A file path inside the ZIP, with "/" separators and no leading slash. */
+    private static String file(JsonObject json, String key, String def, ValidationReport report) {
+        String path = Json.string(json, key, def, "map.json.files", report).replace('\\', '/');
+        while (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        if (path.isEmpty() || path.endsWith("/")) {
+            report.error("map.json.files." + key + " must be a file path inside the ZIP");
+            return def;
+        }
+        return path;
     }
 
     private static String normalizeFolder(String folder) {
@@ -390,7 +403,7 @@ public record MapConfig(
         if (json == null) {
             return new Dimension(null, null);
         }
-        String p = "map.json.dimension";
+        String p = "map.json.dimension_parameter";
         Json.checkKnownKeys(json, p, report, "min_y", "height", "max_y");
         Integer minY = Json.integer(json, "min_y", null, p, report);
         Integer height = Json.integer(json, "height", null, p, report);

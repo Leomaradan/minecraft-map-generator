@@ -205,31 +205,43 @@
     "files": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Paths inside the ZIP.",
+      "description": "Paths inside the ZIP. Each file defaults to its standard name (heightmap.png, biomes.png...); a file named here must be in the ZIP, and its standard name is then ignored.",
       "properties": {
         "heightmap": {
           "type": "string",
-          "default": "heightmap.png"
+          "default": "heightmap.png",
+          "description": "Heightmap file. Required in the ZIP: heightmap.png unless another file is named here.",
+          "minLength": 1
         },
         "biomes": {
           "type": "string",
-          "default": "biomes.png"
+          "default": "biomes.png",
+          "description": "Biome map file. Optional under its default name; required in the ZIP when named here.",
+          "minLength": 1
         },
         "biome_mapping": {
           "type": "string",
-          "default": "biomes.json"
+          "default": "biomes.json",
+          "description": "Biome mapping file. Optional under its default name; required in the ZIP when named here.",
+          "minLength": 1
         },
         "water": {
           "type": "string",
-          "default": "water.png"
+          "default": "water.png",
+          "description": "Water map file. Optional under its default name; required in the ZIP when named here.",
+          "minLength": 1
         },
         "lava": {
           "type": "string",
-          "default": "lava.png"
+          "default": "lava.png",
+          "description": "Lava map file. Optional under its default name; required in the ZIP when named here.",
+          "minLength": 1
         },
         "structures": {
           "type": "string",
-          "default": "structures.json"
+          "default": "structures.json",
+          "description": "Structure list file. Optional under its default name; required in the ZIP when named here.",
+          "minLength": 1
         },
         "datapack": {
           "type": "string",
@@ -290,7 +302,7 @@
         }
       ]
     },
-    "dimension": {
+    "dimension_parameter": {
       "type": "object",
       "additionalProperties": false,
       "description": "Explicit world height (multiples of 16). Automatic by default.",
