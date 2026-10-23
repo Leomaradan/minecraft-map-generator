@@ -29,7 +29,10 @@ with SDL3, so the generator code differs between the two branches. Fixes to the 
 ported by hand from one branch to the other; `core/` is the same on both.
 
 The map ZIP format is the same for every version, but a map's `datapack/` follows Minecraft's own
-format: custom biomes written for 26.3 don't load on 26.1 or 26.2, and the other way round.
+format: custom biomes written for 26.3 don't load on 26.1 or 26.2, and the other way round. A
+datapack can support both with an overlay, as the example maps do: their files are in the
+26.1/26.2 format, and an `mc26_3` overlay (applied from data pack format 121) holds the 26.3
+versions. The example ZIPs are the same on both branches and work on 26.1, 26.2 and 26.3.
 
 ## Mod loaders
 

@@ -24,7 +24,14 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIZE = 256
-DATA_VERSION = 5023  # Minecraft 26.3
+DATA_VERSION = 4786  # Minecraft 26.1: 26.2 and 26.3 upgrade it
+# The datapack works on Minecraft 26.1 (data pack format 101), 26.2 (107) and 26.3 (121). Its
+# files are in the 26.1/26.2 format; the mc26_3 overlay replaces them from format 121, where biome
+# mob spawns became the minecraft:gameplay/natural_mob_spawns attribute.
+PACK_MCMETA = {
+    "pack": {"description": "Example Island biomes", "min_format": 101, "max_format": 121},
+    "overlays": {"entries": [{"min_format": 121, "max_format": 121, "directory": "mc26_3"}]},
+}
 SCHEMAS = "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/"
 
 # ---------------------------------------------------------------------------------------------
@@ -240,7 +247,7 @@ def write_zip(path, config, heightmap, water, lava, biomes, extra=None):
         z.writestr("biomes.json", json.dumps(BIOME_MAPPING, indent=2))
         z.writestr("structures.json", json.dumps(structures(), indent=2))
         z.writestr("structures/hut.nbt", hut_template())
-        z.writestr("datapack/pack.mcmeta", json.dumps({"pack": {"description": "Example Island biomes", "min_format": 121, "max_format": 121}}, indent=2))
+        z.writestr("datapack/pack.mcmeta", json.dumps(PACK_MCMETA, indent=2))
         src = os.path.join(HERE, "src", "datapack")
         for root, _, files in os.walk(src):
             for name in files:
