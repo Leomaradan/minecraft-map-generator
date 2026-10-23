@@ -290,7 +290,11 @@ class MapPackReaderTest {
                           {"type": "structure", "id": "Not Valid", "x": 1, "z": 2},
                           {"type": "template", "path": "a.nbt", "x": 1, "z": 2, "rotation": "sideways"},
                           {"type": "structure", "id": "minecraft:igloo"},
-                          {"type": "structure", "id": "minecraft:igloo", "x": 1, "z": 2, "retries": 100}
+                          {"type": "structure", "id": "minecraft:igloo", "x": 1, "z": 2, "retries": 100},
+                          {"type": "structure", "id": "minecraft:igloo", "x": 1, "z": 2, "retries": -1},
+                          {"type": "castle", "id": "minecraft:igloo", "x": 1, "z": 2},
+                          {"type": "template", "x": 1, "z": 2},
+                          {"type": "template", "path": "/structures/a.txt", "x": 1, "z": 2}
                         ]
                         """)
                 .read();
@@ -299,6 +303,10 @@ class MapPackReaderTest {
         assertTrue(anyContains(result.report().errors(), "missing.nbt\" is not in the ZIP"));
         assertTrue(anyContains(result.report().errors(), "not a valid resource id"));
         assertTrue(anyContains(result.report().errors(), "x and z are required"));
+        assertTrue(anyContains(result.report().errors(), "type must be \"template\" or \"structure\""));
+        assertTrue(anyContains(result.report().errors(), ".path is required for a template"));
+        assertTrue(anyContains(result.report().errors(), "must point to a structure template (.nbt file)"));
+        assertEquals(2, result.report().errors().stream().filter(e -> e.contains("retries must be between")).count());
     }
 
     @Test

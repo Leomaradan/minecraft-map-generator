@@ -190,6 +190,7 @@ class TerrainSamplerTest {
         assertEquals(new MapConfig.Carvers(false, false, true),
                 config("{\"decoration\": {\"carvers\": {\"cave\": false, \"canyon\": false, \"noise\": true}}}").decoration().carvers());
         assertTrue(new MapConfig.Carvers(false, false, true).any());
+        assertTrue(new MapConfig.Carvers(false, true, false).any());
 
         for (String carvers : new String[]{"3", "{\"cave\": \"yes\"}"}) {
             ValidationReport report = new ValidationReport();
