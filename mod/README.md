@@ -34,7 +34,10 @@ functions, carvers, structure starts, biome resolvers) and replaced GLFW with SD
 generator code differs between the branches. The map ZIP format is the same, but a map's
 `datapack/` follows Minecraft's own format: custom biomes written for 26.3 (mob spawns as the
 `minecraft:gameplay/natural_mob_spawns` attribute) don't load on 26.1 or 26.2, which use the
-`spawners` and `spawn_costs` fields. The example maps of this branch use the older format.
+`spawners` and `spawn_costs` fields. A datapack can support both with an overlay, as the example
+maps do: their files are in the 26.1/26.2 format, and an `mc26_3` overlay (applied from data pack
+format 121) holds the 26.3 versions. The example ZIPs are the same on both branches and work on
+26.1, 26.2 and 26.3.
 
 ## Mod loaders
 

@@ -41,7 +41,7 @@ python3 example/make_example.py     # regenerate example/example.zip and example
   - The file dialog uses tinyfd, not SDL3.
   - `findNearestMapStructure` caps vanilla's search radius. Before 26.3, vanilla opens or creates a region file for each candidate chunk, which hangs the server around a map.
 - 26.1 and 26.2 differ only in a few client methods (`Minecraft` vs `Gui`), which `client/ClientCompat` looks up at runtime. Don't call `setScreen` or `toastManager` directly.
-- Map datapacks use Minecraft's own format. The example biome uses the pre-26.3 `spawners`/`spawn_costs` fields, the pack format range is 101–107, and `hut.nbt` has DataVersion 4786 (26.1).
+- Map datapacks use Minecraft's own format. The example datapack is in the 26.1/26.2 format (`spawners`/`spawn_costs`), and the `mc26_3` overlay (`example/src/datapack/mc26_3`, format 121) holds the 26.3 biome. `pack.mcmeta` declares formats 101–121, and `hut.nbt` has DataVersion 4786 (26.1). Keep `make_example.py` and `example/src` identical to `main`'s, so both branches build the same ZIPs, which work on 26.1–26.3.
 - `common/src/main/resources/mapgen/*_dimension_type.json` are copies of 26.1/26.2's vanilla dimension types, which are identical in both versions. Don't take `main`'s copies: 26.3 added the `straw_bed_rule` attribute and changed `bed_rule`, which 26.1 and 26.2 reject.
 - Porting from `main`: merge `origin/main` into this branch, keep the pre-26.3 code in conflicts, and check new code against the list above. It compiles against the 26.1/26.2 APIs, but data files (biomes, dimension types, pack formats, DataVersions) only fail at runtime.
 
