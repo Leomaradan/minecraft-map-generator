@@ -39,6 +39,8 @@ public record MapConfig(
     public static final String FILE_LAVA = "lava";
     public static final String FILE_STRUCTURES = "structures";
     private static final String KEY_HEIGHT = "height";
+    private static final String KEY_MIN_Y = "min_y";
+    private static final String KEY_MAX_Y = "max_y";
     /** Default {@code biome_transition}: biome borders are shifted by up to this many blocks. */
     public static final int DEFAULT_BIOME_TRANSITION = 4;
     public static final int MAX_BIOME_TRANSITION = 64;
@@ -215,9 +217,9 @@ public record MapConfig(
                 return null;
             }
             JsonObject o = e.getAsJsonObject();
-            Json.checkKnownKeys(o, sp, report, "min_y", "max_y");
-            Integer minY = Json.integer(o, "min_y", null, sp, report);
-            Integer maxY = Json.integer(o, "max_y", null, sp, report);
+            Json.checkKnownKeys(o, sp, report, KEY_MIN_Y, KEY_MAX_Y);
+            Integer minY = Json.integer(o, KEY_MIN_Y, null, sp, report);
+            Integer maxY = Json.integer(o, KEY_MAX_Y, null, sp, report);
             if (minY != null && maxY != null && minY > maxY) {
                 report.error(sp + ".min_y must not be above max_y");
                 return null;
@@ -376,11 +378,11 @@ public record MapConfig(
             return new HeightSpec(null, null, null, null);
         }
         String p = "map.json.height";
-        Json.checkKnownKeys(json, p, report, "base_y", "scale", "min_y", "max_y");
+        Json.checkKnownKeys(json, p, report, "base_y", "scale", KEY_MIN_Y, KEY_MAX_Y);
         Double baseY = Json.number(json, "base_y", null, p, report);
         Double scale = Json.number(json, "scale", null, p, report);
-        Double minY = Json.number(json, "min_y", null, p, report);
-        Double maxY = Json.number(json, "max_y", null, p, report);
+        Double minY = Json.number(json, KEY_MIN_Y, null, p, report);
+        Double maxY = Json.number(json, KEY_MAX_Y, null, p, report);
         boolean linear = baseY != null || scale != null;
         boolean range = minY != null || maxY != null;
         if (linear && range) {
@@ -413,10 +415,10 @@ public record MapConfig(
             return new Dimension(null, null);
         }
         String p = "map.json.dimension_parameter";
-        Json.checkKnownKeys(json, p, report, "min_y", KEY_HEIGHT, "max_y");
-        Integer minY = Json.integer(json, "min_y", null, p, report);
+        Json.checkKnownKeys(json, p, report, KEY_MIN_Y, KEY_HEIGHT, KEY_MAX_Y);
+        Integer minY = Json.integer(json, KEY_MIN_Y, null, p, report);
         Integer height = Json.integer(json, KEY_HEIGHT, null, p, report);
-        Integer maxY = Json.integer(json, "max_y", null, p, report);
+        Integer maxY = Json.integer(json, KEY_MAX_Y, null, p, report);
         if (maxY != null) {
             if (height != null) {
                 report.error(p + ": use either height or max_y, not both");
