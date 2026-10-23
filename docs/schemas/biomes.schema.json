@@ -298,7 +298,7 @@
       ]
     },
     "carvers": {
-      "description": "Caves and ravines from the biomes: true, false, or {\"cave\": ..., \"canyon\": ...}.",
+      "description": "Caves and ravines from the biomes: true, false, or {\"cave\": ..., \"canyon\": ..., \"noise\": ...}.",
       "oneOf": [
         {
           "type": "boolean"
@@ -316,6 +316,10 @@
               "type": "boolean",
               "default": true,
               "description": "Ravines."
+            },
+            "noise": {
+              "type": "boolean",
+              "description": "Noise caves: large caverns, spaghetti and noodle caves, cave entrances. Defaults to the value of cave."
             }
           }
         }

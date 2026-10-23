@@ -182,9 +182,14 @@ class TerrainSamplerTest {
         assertEquals(MapConfig.Carvers.ALL, config("{}").decoration().carvers());
         assertEquals(MapConfig.Carvers.NONE, config("{\"decoration\": {\"carvers\": false}}").decoration().carvers());
         MapConfig.Carvers caves = config("{\"decoration\": {\"carvers\": {\"canyon\": false}}}").decoration().carvers();
-        assertEquals(new MapConfig.Carvers(true, false), caves);
+        assertEquals(new MapConfig.Carvers(true, false, true), caves);
         assertTrue(caves.any());
         assertFalse(MapConfig.Carvers.NONE.any());
+        // Noise caves follow "cave" unless set
+        assertEquals(new MapConfig.Carvers(false, true, false), config("{\"decoration\": {\"carvers\": {\"cave\": false}}}").decoration().carvers());
+        assertEquals(new MapConfig.Carvers(false, false, true),
+                config("{\"decoration\": {\"carvers\": {\"cave\": false, \"canyon\": false, \"noise\": true}}}").decoration().carvers());
+        assertTrue(new MapConfig.Carvers(false, false, true).any());
 
         for (String carvers : new String[]{"3", "{\"cave\": \"yes\"}"}) {
             ValidationReport report = new ValidationReport();

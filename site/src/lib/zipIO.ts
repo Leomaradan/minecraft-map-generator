@@ -246,6 +246,7 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
           size: path && project.nbtFiles[path] ? (readNbtSize(project.nbtFiles[path]) ?? undefined) : undefined,
           structureId: e.id as string | undefined,
           fallbackId: e.fallback_id as string | undefined,
+          retries: e.retries as number | undefined,
           rotation: (e.rotation as StructureTemplate['rotation']) ?? 'none',
           mirror: (e.mirror as StructureTemplate['mirror']) ?? 'none',
           y: (e.y as number | 'surface' | undefined) ?? 'surface',
@@ -346,6 +347,7 @@ export function exportZip(project: Project): Uint8Array {
       } else {
         const e: JsonObject = { type: 'structure', id: t.structureId!, x: inst.x, z: inst.z };
         if (t.fallbackId) e.fallback_id = t.fallbackId;
+        if (t.retries !== undefined) e.retries = t.retries;
         list.push(e);
       }
     }

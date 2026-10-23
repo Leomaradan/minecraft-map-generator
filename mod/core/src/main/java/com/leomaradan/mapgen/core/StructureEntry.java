@@ -46,11 +46,20 @@ public sealed interface StructureEntry {
      * A registered structure (vanilla, modded or from the ZIP datapack), e.g. {@code minecraft:bastion_remnant}.
      *
      * @param fallbackId structure used when {@code id} doesn't exist (e.g. from a mod that isn't installed), or null
+     * @param retries    extra attempts when the structure can't generate at its position (other
+     *                   seeds, then the chunks around); 0 disables them
      */
-    record Structure(String id, String fallbackId, int x, int z) implements StructureEntry {
+    record Structure(String id, String fallbackId, int x, int z, int retries) implements StructureEntry {
+        public static final int DEFAULT_RETRIES = 32;
+        public static final int MAX_RETRIES = 64;
+
+        public Structure(String id, String fallbackId, int x, int z) {
+            this(id, fallbackId, x, z, DEFAULT_RETRIES);
+        }
+
         @Override
         public Structure at(int x, int z) {
-            return new Structure(this.id, this.fallbackId, x, z);
+            return new Structure(this.id, this.fallbackId, x, z, this.retries);
         }
 
         /** The id to generate: {@code id} if it exists, else {@code fallbackId} if it exists, else null (skipped). */
@@ -175,13 +184,18 @@ public sealed interface StructureEntry {
             return new Template(path, x, y, Json.integer(o, "y_offset", 0, p, report), z, rotation, mirror, Json.bool(o, "entities", true, p, report));
         }
         if ("structure".equals(type)) {
-            Json.checkKnownKeys(o, p, report, "type", "id", "fallback_id", "x", "z");
+            Json.checkKnownKeys(o, p, report, "type", "id", "fallback_id", "x", "z", "retries");
             String id = Json.id(o, "id", null, p, report);
             if (id == null) {
                 report.error(p + ".id is required for a structure");
                 return null;
             }
-            return new Structure(id, Json.id(o, "fallback_id", null, p, report), x, z);
+            int retries = Json.integer(o, "retries", Structure.DEFAULT_RETRIES, p, report);
+            if (retries < 0 || retries > Structure.MAX_RETRIES) {
+                report.error(p + ".retries must be between 0 and " + Structure.MAX_RETRIES);
+                retries = Structure.DEFAULT_RETRIES;
+            }
+            return new Structure(id, Json.id(o, "fallback_id", null, p, report), x, z, retries);
         }
         report.error(p + ".type must be \"template\" or \"structure\"");
         return null;

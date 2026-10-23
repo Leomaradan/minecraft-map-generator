@@ -2,6 +2,7 @@ package com.leomaradan.mapgen.mixin;
 
 import com.leomaradan.mapgen.pack.MapPacks;
 import com.leomaradan.mapgen.world.MapChunkGenerator;
+import com.leomaradan.mapgen.world.NoiseCaves;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
@@ -26,6 +27,7 @@ public abstract class MinecraftServerMixin {
     @Inject(method = "createLevels", at = @At("HEAD"))
     private void mapgen$installPacks(CallbackInfo ci) {
         MinecraftServer server = (MinecraftServer) (Object) this;
+        NoiseCaves.setRegistries(server.registryAccess());
         List<String> packIds = new ArrayList<>();
         server.registryAccess().lookupOrThrow(Registries.LEVEL_STEM).listElements().forEach(stem -> {
             if (stem.value().generator() instanceof MapChunkGenerator generator && generator.settings().isConfigured()) {
@@ -62,5 +64,6 @@ public abstract class MinecraftServerMixin {
     @Inject(method = "stopServer", at = @At("TAIL"))
     private void mapgen$forgetPacks(CallbackInfo ci) {
         MapPacks.onServerStopped();
+        NoiseCaves.setRegistries(null);
     }
 }
