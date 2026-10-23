@@ -2,24 +2,21 @@ package com.leomaradan.mapgen.world;
 
 import com.leomaradan.mapgen.core.TerrainSampler;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
-import net.minecraft.world.level.levelgen.NoiseRouterData;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.Noises;
 import net.minecraft.world.level.levelgen.RandomState;
-import net.minecraft.world.level.levelgen.densityfunction.DensityFunction;
-import net.minecraft.world.level.levelgen.densityfunction.DensityFunctions;
-import net.minecraft.world.level.levelgen.densityfunction.DensitySampler;
-import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.jspecify.annotations.Nullable;
 
@@ -62,6 +59,11 @@ public final class NoiseCaves {
     private static final AtomicReference<@Nullable RegistryAccess> REGISTRIES = new AtomicReference<>();
 
     private final DensityFunction[] functions;
+    /** The functions with their noises created from a world's seed, for the last RandomState used. */
+    private final AtomicReference<@Nullable Wired> wired = new AtomicReference<>();
+
+    private record Wired(RandomState randomState, DensityFunction[] functions) {
+    }
 
     private NoiseCaves(DensityFunction[] functions) {
         this.functions = functions;
@@ -79,23 +81,51 @@ public final class NoiseCaves {
             return null;
         }
         HolderGetter<DensityFunction> functions = access.lookupOrThrow(Registries.DENSITY_FUNCTION);
-        HolderGetter<NormalNoise> noises = access.lookupOrThrow(Registries.NOISE);
+        HolderGetter<NormalNoise.NoiseParameters> noises = access.lookupOrThrow(Registries.NOISE);
         DensityFunction[] f = new DensityFunction[COMPONENTS];
         // NoiseRouterData.underground: layered caverns + cheese caverns (without the top slide, applied in Java)
-        DensityFunction layers = DensityFunctions.noise(noises.getOrThrow(Noises.CAVE_LAYER), 8.0).square().mul(4.0f);
-        DensityFunction cheese = DensityFunctions.noise(noises.getOrThrow(Noises.CAVE_CHEESE), 0.6666666666666666).add(0.27f).clamp(-1.0f, 1.0f);
+        DensityFunction layers = DensityFunctions.mul(DensityFunctions.noise(noises.getOrThrow(Noises.CAVE_LAYER), 8.0).square(), DensityFunctions.constant(4.0));
+        DensityFunction cheese = DensityFunctions.add(DensityFunctions.noise(noises.getOrThrow(Noises.CAVE_CHEESE), 0.6666666666666666), DensityFunctions.constant(0.27))
+                .clamp(-1.0, 1.0);
         f[CAVERNS] = DensityFunctions.add(layers, cheese);
         f[ENTRANCES] = function(functions, "entrances");
         f[SPAGHETTI] = DensityFunctions.add(function(functions, "spaghetti_2d"), function(functions, "spaghetti_roughness_function"));
         DensityFunction pillars = function(functions, "pillars");
-        f[PILLARS] = DensityFunctions.rangeChoice(pillars, -1000000.0f, 0.03f, DensityFunctions.constant(-1000000.0f), pillars);
+        f[PILLARS] = DensityFunctions.rangeChoice(pillars, -1000000.0, 0.03, DensityFunctions.constant(-1000000.0), pillars);
         f[NOODLE] = function(functions, "noodle");
         return new NoiseCaves(f);
     }
 
     private static DensityFunction function(HolderGetter<DensityFunction> functions, String name) {
-        return NoiseRouterData.getFunction(functions,
-                ResourceKey.create(Registries.DENSITY_FUNCTION, Identifier.withDefaultNamespace("overworld/caves/" + name)));
+        // What the private NoiseRouterData.getFunction does.
+        return new DensityFunctions.HolderHolder(functions.getOrThrow(
+                ResourceKey.create(Registries.DENSITY_FUNCTION, Identifier.withDefaultNamespace("overworld/caves/" + name))));
+    }
+
+    /** The functions with their noises created from the world's seed, as RandomState does for the noise router. */
+    private DensityFunction[] wire(RandomState randomState) {
+        Wired w = this.wired.get();
+        if (w != null && w.randomState() == randomState) {
+            return w.functions();
+        }
+        DensityFunction.Visitor visitor = new DensityFunction.Visitor() {
+            @Override
+            public DensityFunction apply(DensityFunction function) {
+                return function;
+            }
+
+            @Override
+            public DensityFunction.NoiseHolder visitNoise(DensityFunction.NoiseHolder noise) {
+                Holder<NormalNoise.NoiseParameters> data = noise.noiseData();
+                return new DensityFunction.NoiseHolder(data, randomState.getOrCreateNoise(data.unwrapKey().orElseThrow()));
+            }
+        };
+        DensityFunction[] functions = new DensityFunction[COMPONENTS];
+        for (int c = 0; c < COMPONENTS; c++) {
+            functions[c] = this.functions[c].mapAll(visitor);
+        }
+        this.wired.set(new Wired(randomState, functions));
+        return functions;
     }
 
     /** Which columns of the chunk get noise caves, and how they are protected. */
@@ -168,23 +198,24 @@ public final class NoiseCaves {
     /** Samples every component at the corners of the cells of a chunk. */
     private float[][] sampleCorners(ChunkPos pos, int minY, int cellsY, RandomState randomState) {
         float[][] corners = new float[COMPONENTS][CORNERS_XZ * CORNERS_XZ * (cellsY + 1)];
-        SamplerContext context = SamplerContext.builder().enableCaches().build();
+        DensityFunction[] functions = this.wire(randomState);
         for (int c = 0; c < COMPONENTS; c++) {
-            DensitySampler.Bound sampler = randomState.getSampler(this.functions[c]).bind(context);
+            DensityFunction function = functions[c];
             for (int i = 0; i < corners[c].length; i++) {
                 int cy = i % (cellsY + 1);
                 int cz = i / (cellsY + 1) % CORNERS_XZ;
                 int cx = i / (cellsY + 1) / CORNERS_XZ;
-                corners[c][i] = sampler.sampleValue(pos.getMinBlockX() + cx * CELL_XZ, minY + cy * CELL_Y, pos.getMinBlockZ() + cz * CELL_XZ);
+                corners[c][i] = (float) function.compute(
+                        new DensityFunction.SinglePointContext(pos.getMinBlockX() + cx * CELL_XZ, minY + cy * CELL_Y, pos.getMinBlockZ() + cz * CELL_XZ));
             }
         }
         return corners;
     }
 
-    /** Turns a block into a cave, unless it is air, a fluid or uncarvable. */
+    /** Turns a block into a cave, unless it is air, a fluid or bedrock (26.3's uncarvable tag). */
     private static void carveBlock(ChunkAccess chunk, BlockPos pos) {
         BlockState state = chunk.getBlockState(pos);
-        if (!state.isAir() && !state.is(BlockTags.UNCARVABLE) && state.getFluidState().isEmpty()) {
+        if (!state.isAir() && !state.is(Blocks.BEDROCK) && state.getFluidState().isEmpty()) {
             chunk.setBlockState(pos, pos.getY() < chunk.getMinY() + LAVA_DEPTH ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
         }
     }
@@ -219,7 +250,7 @@ public final class NoiseCaves {
         int i100 = ((cx + 1) * CORNERS_XZ + cz) * stride + cy;
         int i010 = (cx * CORNERS_XZ + cz + 1) * stride + cy;
         int i110 = ((cx + 1) * CORNERS_XZ + cz + 1) * stride + cy;
-        return Mth.lerp3(tx, ty, tz,
+        return (float) Mth.lerp3(tx, ty, tz,
                 values[i000], values[i100], values[i000 + 1], values[i100 + 1],
                 values[i010], values[i110], values[i010 + 1], values[i110 + 1]);
     }

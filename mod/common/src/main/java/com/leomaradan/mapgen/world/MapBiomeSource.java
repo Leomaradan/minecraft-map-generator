@@ -10,7 +10,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.BiomeResolver;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Climate;
 
@@ -50,32 +49,10 @@ public final class MapBiomeSource extends BiomeSource {
         return Stream.concat(this.biomes.stream(), Stream.of(this.outside));
     }
 
+    /** Before 26.3 there are no per-chunk resolvers: every quart position asks the source. */
     @Override
-    public BiomeResolver createResolver(Climate.Sampler sampler) {
-        return (quartX, quartY, quartZ) -> this.biomeAt(QuartPos.toBlock(quartX), QuartPos.toBlock(quartY), QuartPos.toBlock(quartZ));
-    }
-
-    /** Used for one chunk on one thread: the columns are sampled once and reused for every Y. */
-    @Override
-    public BiomeResolver createResolverForChunk(Climate.Sampler sampler, int minQuartX, int minQuartY, int minQuartZ, int maxQuartX, int maxQuartY,
-                                                int maxQuartZ) {
-        TerrainSampler s = this.sampler();
-        if (s == null) {
-            return (quartX, quartY, quartZ) -> this.outside;
-        }
-        TerrainSampler.Column[] columns = new TerrainSampler.Column[16];
-        long[] keys = new long[16];
-        return (quartX, quartY, quartZ) -> {
-            int slot = (quartX & 3) | (quartZ & 3) << 2;
-            long key = ((long) quartX << 32) | (quartZ & 0xFFFFFFFFL);
-            TerrainSampler.Column column = columns[slot];
-            if (column == null || keys[slot] != key) {
-                column = s.sample(QuartPos.toBlock(quartX), QuartPos.toBlock(quartZ), column == null ? new TerrainSampler.Column() : column);
-                columns[slot] = column;
-                keys[slot] = key;
-            }
-            return this.biomeForIndex(column.biomeAt(QuartPos.toBlock(quartY)));
-        };
+    public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ, Climate.Sampler sampler) {
+        return this.biomeAt(QuartPos.toBlock(quartX), QuartPos.toBlock(quartY), QuartPos.toBlock(quartZ));
     }
 
     /** Biome at the surface of a block position. */

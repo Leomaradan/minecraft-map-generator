@@ -160,7 +160,7 @@ public final class ClientMaps {
         pendingAfterReload = pack;
         invoker.mapgen$tryApplyNewDataPacks(repository, false, config -> {
             pendingAfterReload = null;
-            Minecraft.getInstance().gui.setScreen(screen);
+            ClientCompat.setScreen(Minecraft.getInstance(), screen);
         });
     }
 
@@ -210,7 +210,7 @@ public final class ClientMaps {
         }
         packs.getSecond().reload();
         packs.getSecond().setSelected(enabled);
-        invoker.mapgen$tryApplyNewDataPacks(packs.getSecond(), false, config -> Minecraft.getInstance().gui.setScreen(screen));
+        invoker.mapgen$tryApplyNewDataPacks(packs.getSecond(), false, config -> ClientCompat.setScreen(Minecraft.getInstance(), screen));
     }
 
     private static void resetToPreset(WorldCreationUiState state) {
@@ -237,6 +237,6 @@ public final class ClientMaps {
 
     private static void fail(Component message) {
         Minecraft minecraft = Minecraft.getInstance();
-        SystemToast.add(minecraft.gui.toastManager(), SystemToast.SystemToastId.PACK_LOAD_FAILURE, Component.translatable("mapgen.error.title"), message);
+        SystemToast.add(ClientCompat.toastManager(minecraft), SystemToast.SystemToastId.PACK_LOAD_FAILURE, Component.translatable("mapgen.error.title"), message);
     }
 }
