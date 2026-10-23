@@ -77,6 +77,9 @@ export function importZip(zipBytes: Uint8Array): ImportResult {
   const files = stripRoot(unzipSync(zipBytes));
   const config = files['map.json'] ? parseJson(files['map.json'], 'map.json') : null;
   if (!config) throw new Error('map.json is missing');
+  if (config.dimensions !== undefined) {
+    throw new Error('This ZIP has one map per dimension ("dimensions" in map.json): the editor can\'t open it yet');
+  }
   const fileNames = {
     heightmap: 'heightmap.png',
     biomes: 'biomes.png',

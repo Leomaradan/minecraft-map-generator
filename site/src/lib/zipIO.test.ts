@@ -53,3 +53,9 @@ describe('editor-only data', () => {
     expect(Object.keys(JSON.parse(strFromU8(files['biomes.json']))).length).toBe(project.biomes.length + 1);
   });
 });
+
+describe('dimensions', () => {
+  it('refuses a ZIP with one map per dimension', () => {
+    expect(() => importZip(example('example-dimensions.zip'))).toThrow(/one map per dimension/);
+  });
+});

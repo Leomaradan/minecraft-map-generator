@@ -111,6 +111,20 @@ function GeneralPanel() {
         <Field label="Name"><TextInput value={config.name as string | undefined} onChange={(v) => setConfig('name', v)} /></Field>
         <Field label="Description"><TextInput value={config.description as string | undefined} onChange={(v) => setConfig('description', v)} /></Field>
         <Field label="Author"><TextInput value={config.author as string | undefined} onChange={(v) => setConfig('author', v)} /></Field>
+        {typeof config.dimension === 'object' && config.dimension !== null ? (
+          <Field label="Dimension">
+            <p className="hint">New dimension {String((config.dimension as { name?: unknown }).name ?? '')} (set in map.json)</p>
+          </Field>
+        ) : (
+          <Field label="Dimension (empty: the overworld)">
+            <TextInput value={config.dimension as string | undefined} list="dimension-ids" onChange={(v) => setConfig('dimension', v)} />
+            <datalist id="dimension-ids">
+              <option value="minecraft:overworld" />
+              <option value="minecraft:the_nether" />
+              <option value="minecraft:the_end" />
+            </datalist>
+          </Field>
+        )}
         <Field label="Horizontal scale (blocks per pixel)"><NumInput value={num('horizontal_scale')} min={1} onChange={(v) => setConfig('horizontal_scale', v)} placeholder="1" /></Field>
         <Field label="Origin X, Z (default: centered)">
           <div className="row">

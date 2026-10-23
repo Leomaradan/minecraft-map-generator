@@ -3,14 +3,16 @@ package com.leomaradan.mapgen.server;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.leomaradan.mapgen.MapGen;
-import com.leomaradan.mapgen.core.MapPack;
+import com.leomaradan.mapgen.core.MapArchive;
 import com.leomaradan.mapgen.core.MapPackReader;
 import com.leomaradan.mapgen.core.ValidationReport;
 import com.leomaradan.mapgen.pack.MapPacks;
 import com.leomaradan.mapgen.world.MapChunkGenerator;
 import com.leomaradan.mapgen.world.MapWorlds;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.levelgen.WorldDimensions;
 import org.jspecify.annotations.Nullable;
 
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Dedicated server support: with {@code level-type=mapgen:map} and
@@ -27,7 +30,7 @@ import java.util.Properties;
  * generated from that ZIP.
  */
 public final class DedicatedServerMaps {
-    private static volatile @Nullable MapPack pending;
+    private static final AtomicReference<@Nullable MapArchive> PENDING = new AtomicReference<>();
 
     private DedicatedServerMaps() {
     }
@@ -62,7 +65,7 @@ public final class DedicatedServerMaps {
         if (!result.ok()) {
             throw new IllegalStateException("The map ZIP " + zip.toAbsolutePath() + " is invalid:\n" + result.report());
         }
-        MapPack pack = result.pack();
+        MapArchive pack = result.archive();
         result.report().warnings().forEach(w -> MapGen.LOG.warn("[{}] {}", pack.name(), w));
         MapGen.LOG.info("Creating world {} from map {} ({})", worldDir, pack.name(), pack.summary());
         MapPacks.register(pack);
@@ -72,7 +75,7 @@ public final class DedicatedServerMaps {
         } catch (IOException e) {
             throw new IllegalStateException("Can't install the datapacks of " + zip + ": " + e.getMessage(), e);
         }
-        pending = pack;
+        PENDING.set(pack);
     }
 
     private static @Nullable String packPath(String generatorSettings) {
@@ -88,19 +91,20 @@ public final class DedicatedServerMaps {
         return json.has("pack") ? json.get("pack").getAsString() : null;
     }
 
-    /** Replaces the placeholder overworld of the preset with the generator for the pending pack. */
-    public static WorldDimensions configure(WorldDimensions dimensions, HolderLookup.Provider registries) {
-        MapPack pack = pending;
+    /** Puts the generators of the pending ZIP's maps in the dimensions of the new world (the preset's placeholder overworld). */
+    public static WorldDimensions configure(WorldDimensions dimensions, Registry<LevelStem> datapackDimensions, HolderLookup.Provider registries) {
+        MapArchive pack = PENDING.get();
         if (pack == null || !(dimensions.overworld() instanceof MapChunkGenerator)) {
             return dimensions;
         }
         ValidationReport report = new ValidationReport();
         MapWorlds.validateRegistries(pack, registries.lookupOrThrow(Registries.STRUCTURE), report);
-        MapChunkGenerator generator = MapWorlds.createGenerator(pack, registries.lookupOrThrow(Registries.BIOME), report);
-        if (generator == null || report.hasErrors()) {
+        WorldDimensions configured = MapWorlds.configureDimensions(pack, dimensions, datapackDimensions, registries, report);
+        if (configured == null || report.hasErrors()) {
             throw new IllegalStateException("The map " + pack.name() + " can't be used:\n" + report);
         }
-        pending = null;
-        return dimensions.replaceOverworldGenerator(registries, generator);
+        report.warnings().forEach(w -> MapGen.LOG.warn("[{}] {}", pack.name(), w));
+        PENDING.set(null);
+        return configured;
     }
 }

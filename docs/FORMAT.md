@@ -20,8 +20,10 @@ structures/*.nbt    optional  structure templates referenced by structures.json
 datapack/           optional  a regular datapack (pack.mcmeta, data/...) installed in the world
 ```
 
-`mod/example/make_example.py` builds two complete examples (`mod/example/example.zip`,
-`mod/example/example-tall.zip`).
+`mod/example/make_example.py` builds three complete examples (`mod/example/example.zip`,
+`mod/example/example-tall.zip`, and `mod/example/example-dimensions.zip` with three dimensions).
+
+A ZIP can also hold one map per dimension: see [Dimensions](#dimensions).
 
 ## File names
 
@@ -46,6 +48,9 @@ defaults to the name in the list above:
 * When a file has another name, the default name is ignored: with `"water": "sea.png"`, a
   `water.png` in the ZIP is not read.
 * Paths use `/` (a `\` is accepted and converted); a leading `/` is ignored.
+* `null` means the map has no such file, even if the ZIP has a file with the default name
+  (useful with [several dimensions](#several-dimensions-in-one-zip)): `"water": null`. The
+  heightmap can't be `null`; `"datapack": null` means no datapack.
 
 ## JSON Schemas
 
@@ -93,6 +98,77 @@ to 2031, at most 4064 blocks tall; terrain outside the limits is cut (with a war
 
 You can also set the height yourself: `"dimension_parameter": {"min_y": -64, "height": 1024}` (or
 `"max_y"` instead of `"height"`); both must be multiples of 16.
+
+In the Nether and the End, the vanilla height is Y 0 to 255 instead of -64 to 319. For a mod's
+dimension, or a new dimension using an existing dimension type, the height is the dimension
+type's: terrain outside it is cut (with a warning). See [Dimensions](#dimensions).
+
+## Dimensions
+
+By default a map generates the overworld. `dimension` in `map.json` chooses another dimension:
+
+```json
+"dimension": "minecraft:the_nether"
+```
+
+* **A dimension id** (`minecraft:overworld`, `minecraft:the_nether`, `minecraft:the_end`, or a
+  dimension added by a mod, like `twilightforest:twilight_forest`): the map replaces the
+  generator of that dimension. The dimension keeps its look (sky, fog, light, ceiling...).
+  * The overworld, the Nether and the End are resized to the map, like the overworld (see
+    [World height](#world-height)).
+  * A mod's dimension keeps its height. The mod must be installed when the world is created.
+* **A new dimension**: `{"name": ..., "parameters": ...}`.
+
+  ```json
+  "dimension": {
+    "name": "Sky Islands",
+    "parameters": { "type": { "ambient_light": 0.2, "has_skylight": true } }
+  }
+  ```
+
+  * `name` is the dimension id. A name without a namespace becomes `mapgen:<name>` in lower
+    case, other characters replaced by `_` (`Sky Islands` → `mapgen:sky_islands`). It can't be an
+    existing dimension; use the id form to replace one.
+  * `parameters` is a [dimension definition](https://minecraft.wiki/w/Dimension_definition)
+    without `generator` (the map is the generator). Its `type` is:
+    * a dimension type id (`"type": "minecraft:the_nether"`): the dimension uses that type as is,
+      height included;
+    * an inline dimension type (an object): its fields replace those of the overworld type,
+      and the height is the map's unless the object sets `min_y`, `height` and
+      `logical_height`;
+    * absent: the dimension is like the overworld, sized to the map.
+  * To go to a new dimension, use `/execute in mapgen:sky_islands run tp @s 0 200 0`, or a
+    mod or datapack that adds portals.
+
+A dimension that no map generates is vanilla: a map of the Nether alone keeps a normal overworld.
+`spawn` and the world border (`outside.border`) are only used by the overworld's map.
+
+### Several dimensions in one ZIP
+
+`map.json` can list one map per dimension:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/map.schema.json",
+  "dimensions": [
+    { "name": "My World", "dimension": "minecraft:overworld" },
+    {
+      "dimension": "minecraft:the_nether",
+      "files": { "heightmap": "nether/heightmap.png", "lava": "nether/lava.png", "water": null, "biomes": null, "structures": null }
+    },
+    { "dimension": { "name": "sky" }, "files": { "heightmap": "sky/heightmap.png", "water": null, "lava": null, "biomes": null, "structures": null } }
+  ]
+}
+```
+
+* Each element of `dimensions` is a complete `map.json` (without `$schema`), and its `dimension`
+  key is required. Only `$schema` and `dimensions` are allowed next to it.
+* Two maps can't generate the same dimension.
+* Every map reads its files under the default names unless `files` names them: give each map
+  its own files, and `null` for the files it doesn't have (else it would read another map's
+  `water.png`, `biomes.png`...). Maps can share files, such as a heightmap or `biomes.json`.
+* The datapacks of all maps (`files.datapack`) are installed in the world.
+* The world's name in the UI is the `name` of the first map.
 
 ## Water and lava maps
 
@@ -353,6 +429,7 @@ Every field is optional. Unknown keys produce a warning.
 | `horizontal_scale` | `1` | Blocks per pixel (`2` makes a 1024 px map 2048 blocks wide). |
 | `height` | see above | Value-to-Y mapping, `{base_y, scale}` or `{min_y, max_y}`. |
 | `files` | default names | Paths of the other files in the ZIP. See [File names](#file-names). |
+| `dimension` | `minecraft:overworld` | Dimension the map generates: a dimension id, or `{"name", "parameters"}` for a new dimension. See [Dimensions](#dimensions). |
 | `dimension_parameter` | automatic | World bottom and height (multiples of 16). |
 | `sea_level` | `63` | Minecraft's sea level (mob spawning, some features). It does **not** add water; use the water map. |
 | `biome_transition` | `4` | Biome borders are shifted by up to this many blocks (0 to 64) so they look natural; `0` keeps pixel borders. See [Biome transitions](#biome-transitions). |

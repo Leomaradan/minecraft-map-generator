@@ -1,8 +1,8 @@
 package com.leomaradan.mapgen.core;
 
 /**
- * Vertical extent of the overworld for a map. When it differs from vanilla (-64..320), the mod
- * generates a datapack overriding the overworld dimension type with these values.
+ * Vertical extent of the dimension of a map. When it differs from the vanilla dimension
+ * ({@link #baseline}), the mod generates a datapack overriding its dimension type with these values.
  */
 public record DimensionLayout(int minY, int height) {
     public static final int VANILLA_MIN_Y = -64;
@@ -17,6 +17,16 @@ public record DimensionLayout(int minY, int height) {
     public static final int FOOTROOM = 16;
 
     public static final DimensionLayout VANILLA = new DimensionLayout(VANILLA_MIN_Y, VANILLA_HEIGHT);
+    /** The Nether and the End: Y 0..255. */
+    public static final DimensionLayout NETHER_END = new DimensionLayout(0, 256);
+
+    /** Height of the vanilla dimension a map replaces (the overworld's for new dimensions). */
+    public static DimensionLayout baseline(MapConfig.DimensionTarget target) {
+        return switch (target.id()) {
+            case MapConfig.DimensionTarget.NETHER, MapConfig.DimensionTarget.END -> NETHER_END;
+            default -> VANILLA;
+        };
+    }
 
     public int maxY() {
         return this.minY + this.height - 1;
@@ -31,8 +41,16 @@ public record DimensionLayout(int minY, int height) {
      * @param highestY highest block Y the map produces
      */
     public static DimensionLayout compute(MapConfig.Dimension explicit, int lowestY, int highestY, ValidationReport report) {
-        int autoMin = Math.min(VANILLA_MIN_Y, floor16(lowestY - FOOTROOM));
-        int autoMax = Math.max(VANILLA_MIN_Y + VANILLA_HEIGHT, ceil16(highestY + HEADROOM + 1));
+        return compute(explicit, VANILLA, lowestY, highestY, report);
+    }
+
+    /**
+     * @param baseline the smallest extent: the vanilla height of the dimension
+     */
+    public static DimensionLayout compute(MapConfig.Dimension explicit, DimensionLayout baseline, int lowestY, int highestY,
+                                          ValidationReport report) {
+        int autoMin = Math.min(baseline.minY(), floor16(lowestY - FOOTROOM));
+        int autoMax = Math.max(baseline.minY() + baseline.height(), ceil16(highestY + HEADROOM + 1));
 
         int minY = explicit.minY() != null ? explicit.minY() : autoMin;
         int height = explicit.height() != null ? explicit.height() : autoMax - minY;
@@ -56,7 +74,7 @@ public record DimensionLayout(int minY, int height) {
         if (minY < LIMIT_MIN_Y || height < 16 || height > LIMIT_HEIGHT || minY + height - 1 > LIMIT_MAX_Y) {
             report.error("map.json.dimension_parameter: min_y=" + minY + " height=" + height + " is outside Minecraft limits (min_y >= "
                     + LIMIT_MIN_Y + ", 16 <= height <= " + LIMIT_HEIGHT + ", min_y + height <= " + (LIMIT_MAX_Y + 1) + ")");
-            return VANILLA;
+            return baseline;
         }
         if (lowestY < minY + 1) {
             report.warn("terrain reaches Y=" + lowestY + ", below the bottom of the world (" + minY + "); it is cut");

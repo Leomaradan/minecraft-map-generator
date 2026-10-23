@@ -1,6 +1,8 @@
 package com.leomaradan.mapgen.core;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.leomaradan.mapgen.core.png.PngImage;
@@ -13,12 +15,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -28,10 +33,17 @@ public final class MapPackReader {
     /** Length of the hex id derived from the ZIP SHA-1. */
     private static final int ID_LENGTH = 16;
 
-    /** Outcome of a read: {@code pack} is null when {@code report} has errors. */
-    public record Result(MapPack pack, ValidationReport report) {
+    public static final String KEY_DIMENSIONS = "dimensions";
+
+    /** Outcome of a read: {@code archive} is null when {@code report} has errors. */
+    public record Result(MapArchive archive, ValidationReport report) {
         public boolean ok() {
-            return this.pack != null;
+            return this.archive != null;
+        }
+
+        /** The first map of the ZIP (the only one in the single format), or null. */
+        public MapPack pack() {
+            return this.archive == null ? null : this.archive.dimensions().getFirst();
         }
     }
 
@@ -47,8 +59,8 @@ public final class MapPackReader {
         try {
             String id = computeId(zip);
             try (ZipFile file = new ZipFile(zip.toFile(), StandardCharsets.UTF_8)) {
-                MapPack pack = read(zip, id, file, report);
-                return new Result(report.hasErrors() ? null : pack, report);
+                MapArchive archive = read(zip, id, file, report);
+                return new Result(report.hasErrors() ? null : archive, report);
             }
         } catch (IOException e) {
             report.error("can't read " + zip.getFileName() + ": " + e.getMessage());
@@ -70,7 +82,7 @@ public final class MapPackReader {
         }
     }
 
-    private static MapPack read(Path zipPath, String id, ZipFile zip, ValidationReport report) throws IOException {
+    private static MapArchive read(Path zipPath, String id, ZipFile zip, ValidationReport report) throws IOException {
         Map<String, ZipEntry> entries = listEntries(zip, report);
         if (!entries.containsKey(CONFIG_FILE)) {
             report.error("the ZIP has no " + CONFIG_FILE + " at its root");
@@ -85,12 +97,79 @@ public final class MapPackReader {
             report.error(CONFIG_FILE + " must be a JSON object");
             return null;
         }
-        MapConfig config = MapConfig.parse(configJson.getAsJsonObject(), report);
-        MapConfig.Files files = config.files();
-        String name = configJson.getAsJsonObject().has("name") && configJson.getAsJsonObject().get("name").isJsonPrimitive()
-                ? configJson.getAsJsonObject().get("name").getAsString()
-                : stripExtension(zipPath.getFileName().toString());
+        JsonObject root = configJson.getAsJsonObject();
+        String zipName = stripExtension(zipPath.getFileName().toString());
+        List<MapPack> packs = root.has(KEY_DIMENSIONS)
+                ? readDimensions(zipPath, id, zip, entries, root, zipName, report)
+                : readMaps(zipPath, id, zip, entries, List.of(root), zipName, report);
+        if (packs == null || report.hasErrors()) {
+            return null;
+        }
+        return new MapArchive(id, packs.getFirst().name(), zipPath, packs);
+    }
 
+    /** The {@code "dimensions"} format: one map.json per dimension. */
+    private static List<MapPack> readDimensions(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, JsonObject root,
+                                                String zipName, ValidationReport report) throws IOException {
+        Json.checkKnownKeys(root, CONFIG_FILE, report, "$schema", KEY_DIMENSIONS);
+        JsonArray list = Json.array(root, KEY_DIMENSIONS, CONFIG_FILE, report);
+        if (list == null || list.isEmpty()) {
+            report.error(CONFIG_FILE + "." + KEY_DIMENSIONS + " must be a non-empty array of maps");
+            return null;
+        }
+        List<JsonObject> maps = new ArrayList<>();
+        for (int i = 0; i < list.size(); i++) {
+            String p = CONFIG_FILE + "." + KEY_DIMENSIONS + "[" + i + "]";
+            if (!list.get(i).isJsonObject()) {
+                report.error(p + " must be an object (a map.json without $schema)");
+            } else if (!list.get(i).getAsJsonObject().has("dimension")) {
+                report.error(p + ".dimension is required");
+            } else {
+                maps.add(list.get(i).getAsJsonObject());
+            }
+        }
+        return report.hasErrors() ? null : readMaps(zipPath, id, zip, entries, maps, zipName, report);
+    }
+
+    /** Reads the maps of a ZIP; null when one is unusable. With several maps, messages name their dimension. */
+    private static List<MapPack> readMaps(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, List<JsonObject> maps,
+                                          String zipName, ValidationReport report) throws IOException {
+        List<ValidationReport> reports = new ArrayList<>();
+        List<MapConfig> configs = new ArrayList<>();
+        Map<String, byte[]> datapack = new LinkedHashMap<>();
+        Set<String> folders = new HashSet<>();
+        for (JsonObject json : maps) {
+            ValidationReport own = maps.size() == 1 ? report : new ValidationReport();
+            MapConfig config = MapConfig.parse(json, own);
+            reports.add(own);
+            configs.add(config);
+            if (folders.add(config.files().datapack())) {
+                readDatapack(zip, entries, config.files().datapack(), own).forEach(datapack::putIfAbsent);
+            }
+        }
+        Map<String, byte[]> shared = datapack.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(datapack);
+        List<MapPack> packs = new ArrayList<>();
+        Set<String> dimensions = new HashSet<>();
+        for (int i = 0; i < maps.size(); i++) {
+            MapConfig config = configs.get(i);
+            ValidationReport own = reports.get(i);
+            String name = maps.get(i).has("name") && maps.get(i).get("name").isJsonPrimitive() ? maps.get(i).get("name").getAsString() : zipName;
+            MapPack pack = readMap(zipPath, id, zip, entries, config, name, shared, own);
+            if (own != report) {
+                report.addAll(own, KEY_DIMENSIONS + "[" + i + "] (" + config.target().id() + "): ");
+            }
+            if (!dimensions.add(config.target().id())) {
+                report.error(KEY_DIMENSIONS + "[" + i + "]: another map already generates " + config.target().id()
+                        + "; each dimension can only have one map");
+            }
+            packs.add(pack);
+        }
+        return report.hasErrors() ? null : packs;
+    }
+
+    private static MapPack readMap(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, MapConfig config, String name,
+                                   Map<String, byte[]> datapack, ValidationReport report) throws IOException {
+        MapConfig.Files files = config.files();
         GrayRaster heightmap = readHeightmap(zip, entries, files, report);
         if (heightmap == null) {
             return null;
@@ -101,7 +180,7 @@ public final class MapPackReader {
         GrayRaster lava = readFluid(zip, entries, files.lava(), MapConfig.FILE_LAVA, files.explicitLava(), heightmap, report);
 
         // Biomes
-        boolean hasBiomeMapping = files.explicitBiomeMapping() || entries.containsKey(files.biomeMapping());
+        boolean hasBiomeMapping = !files.biomes().isEmpty() && (files.explicitBiomeMapping() || entries.containsKey(files.biomeMapping()));
         BiomeMapping biomeMapping = hasBiomeMapping ? readBiomeMapping(zip, entries, files, report) : BiomeMapping.EMPTY;
         BiomeRaster biomes = readBiomes(zip, entries, files, heightmap, biomeMapping, hasBiomeMapping, report);
 
@@ -109,11 +188,9 @@ public final class MapPackReader {
         JsonElement structuresJson = readOptionalJson(zip, entries, files.structures(), MapConfig.FILE_STRUCTURES, files.explicitStructures(),
                 report);
 
-        // Embedded datapack
-        Map<String, byte[]> datapack = readDatapack(zip, entries, files.datapack(), report);
-
         HeightMapping heightMapping = HeightMapping.resolve(config.height(), heightmap.bitDepth());
-        DimensionLayout layout = computeLayout(config, heightMapping, heightmap, water, lava, report);
+        int[] range = blockRange(config, heightMapping, heightmap, water, lava);
+        DimensionLayout layout = DimensionLayout.compute(config.dimension(), DimensionLayout.baseline(config.target()), range[0], range[1], report);
         if (report.hasErrors()) {
             return null;
         }
@@ -127,7 +204,7 @@ public final class MapPackReader {
             return null;
         }
         return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
-                templates, datapack, layout, sampler);
+                templates, datapack, layout, sampler, range[0], range[1]);
     }
 
     /** The heightmap, under its default name or the one given in map.json; null (with an error) if unusable. */
@@ -161,7 +238,7 @@ public final class MapPackReader {
     private static BiomeRaster readBiomes(ZipFile zip, Map<String, ZipEntry> entries, MapConfig.Files files, GrayRaster heightmap,
                                           BiomeMapping mapping, boolean hasBiomeMapping, ValidationReport report) throws IOException {
         if (!files.explicitBiomes() && !entries.containsKey(files.biomes())) {
-            if (hasBiomeMapping) {
+            if (hasBiomeMapping && !files.biomes().isEmpty()) {
                 report.warn(files.biomeMapping() + " is present but there is no biome map (" + files.biomes() + "); it is ignored");
             }
             return null;
@@ -201,9 +278,8 @@ public final class MapPackReader {
         return readJson(zip, entries.get(path), path, report);
     }
 
-    /** Vertical extent of the world from the lowest and highest blocks the map produces. */
-    private static DimensionLayout computeLayout(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water,
-                                                 GrayRaster lava, ValidationReport report) {
+    /** The lowest and highest block Y the map produces. */
+    private static int[] blockRange(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water, GrayRaster lava) {
         int[] range = valueRange(heightmap);
         int lowest = mapping.toBlockY(range[0]);
         int highest = mapping.toBlockY(range[1]);
@@ -217,7 +293,7 @@ public final class MapPackReader {
             lowest = Math.min(lowest, config.outside().groundLevel());
             highest = Math.max(highest, Math.max(config.outside().groundLevel(), config.outside().waterLevel()));
         }
-        return DimensionLayout.compute(config.dimension(), lowest, highest, report);
+        return new int[]{lowest, highest};
     }
 
     /** Raw .nbt files referenced by template structures, by ZIP path. */

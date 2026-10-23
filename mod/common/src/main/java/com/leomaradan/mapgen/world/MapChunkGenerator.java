@@ -222,7 +222,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             synchronized (this) {
                 l = this.loaded;
                 if (l == null) {
-                    l = this.load(MapPacks.get(this.settings.pack()));
+                    l = this.load(MapPacks.get(this.settings.pack(), this.settings.dimension()));
                     this.loaded = l;
                 }
             }

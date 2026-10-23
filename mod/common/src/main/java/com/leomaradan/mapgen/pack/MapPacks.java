@@ -1,6 +1,7 @@
 package com.leomaradan.mapgen.pack;
 
 import com.leomaradan.mapgen.MapGen;
+import com.leomaradan.mapgen.core.MapArchive;
 import com.leomaradan.mapgen.core.MapPack;
 import com.leomaradan.mapgen.core.MapPackReader;
 
@@ -22,15 +23,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class MapPacks {
     public static final String WORLD_FOLDER = "mapgen";
 
-    private static final Map<String, MapPack> LOADED = new ConcurrentHashMap<>();
+    private static final Map<String, MapArchive> LOADED = new ConcurrentHashMap<>();
     private static volatile Path worldDirectory;
 
     private MapPacks() {
     }
 
-    /** Makes a pack known (selected in the UI, or read by the dedicated server at startup). */
-    public static void register(MapPack pack) {
-        LOADED.put(pack.id(), pack);
+    /** Makes a ZIP known (selected in the UI, or read by the dedicated server at startup). */
+    public static void register(MapArchive archive) {
+        LOADED.put(archive.id(), archive);
     }
 
     /**
@@ -47,11 +48,11 @@ public final class MapPacks {
             if (Files.isRegularFile(target)) {
                 continue;
             }
-            MapPack pack = LOADED.get(id);
-            if (pack == null) {
+            MapArchive archive = LOADED.get(id);
+            if (archive == null) {
                 throw new IllegalStateException("The map pack " + id + " of this world is missing: expected " + target);
             }
-            copyInto(pack, worldDir);
+            copyInto(archive, worldDir);
         }
     }
 
@@ -65,7 +66,7 @@ public final class MapPacks {
         return worldDir.resolve(WORLD_FOLDER).resolve(id + ".zip");
     }
 
-    public static void copyInto(MapPack pack, Path worldDir) {
+    public static void copyInto(MapArchive pack, Path worldDir) {
         Path target = packPath(worldDir, pack.id());
         try {
             Files.createDirectories(target.getParent());
@@ -79,12 +80,26 @@ public final class MapPacks {
     }
 
     /**
-     * Returns the pack with the given id, reading it from the current world folder if needed.
+     * Returns the map of a dimension in the ZIP with the given id.
+     *
+     * @param dimension dimension id, or empty for the first map of the ZIP
+     * @throws IllegalStateException if the ZIP can't be found or read, or has no map for that dimension
+     */
+    public static MapPack get(String id, String dimension) {
+        try {
+            return archive(id).get(dimension);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(e.getMessage() + " (the ZIP has changed since the world was created?)", e);
+        }
+    }
+
+    /**
+     * Returns the ZIP with the given id, reading it from the current world folder if needed.
      *
      * @throws IllegalStateException if it can't be found or read
      */
-    public static MapPack get(String id) {
-        MapPack pack = LOADED.get(id);
+    public static MapArchive archive(String id) {
+        MapArchive pack = LOADED.get(id);
         if (pack != null) {
             return pack;
         }
@@ -102,7 +117,7 @@ public final class MapPacks {
             if (!result.ok()) {
                 throw new IllegalStateException("Can't load the map pack " + zip + ":\n" + result.report());
             }
-            pack = result.pack();
+            pack = result.archive();
             if (!pack.id().equals(id)) {
                 MapGen.LOG.warn("Map pack {} has changed since the world was created (id {} instead of {})", zip, pack.id(), id);
             }

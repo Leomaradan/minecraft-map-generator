@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Builds the example map packs (example.zip, example-tall.zip) from scratch.
+"""Builds the example map packs (example.zip, example-tall.zip, example-dimensions.zip) from scratch.
 
 Only uses the Python standard library: PNG and NBT files are written by hand.
 
-    python3 example/make_example.py            # writes example/example.zip and example/example-tall.zip
+    python3 example/make_example.py            # writes the three ZIPs into example/
 
 example.zip       256x256, 8-bit maps: an island with a mountain lake, a lava pool, a custom biome
                   (from the embedded datapack), a structure template and forced structures.
 example-tall.zip  same island with 16-bit maps scaled to a 700-block-high mountain; the world height
                   is raised automatically through a generated dimension type.
+example-dimensions.zip  the island in the overworld, a volcanic island in the Nether and a floating
+                  island in a new dimension (mapgen:sky), in the "dimensions" format of map.json.
 """
 import gzip
 import io
@@ -40,7 +42,7 @@ def png(width, height, rows, bit_depth=8, color_type=0):
 
 
 def gray8(values):
-    return png(SIZE, SIZE, [bytes(max(0, min(255, int(v))) for v in row) for row in values], 8, 0)
+    return png(len(values[0]), len(values), [bytes(max(0, min(255, int(v))) for v in row) for row in values], 8, 0)
 
 
 def gray16(values):
@@ -224,12 +226,16 @@ def build(path, tall):
     else:
         encode = gray8
 
+    write_zip(path, config, encode(heights), encode(water), encode(lava), rgb(biomes))
+
+
+def write_zip(path, config, heightmap, water, lava, biomes, extra=None):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("map.json", json.dumps(config, indent=2))
-        z.writestr("heightmap.png", encode(heights))
-        z.writestr("water.png", encode(water))
-        z.writestr("lava.png", encode(lava))
-        z.writestr("biomes.png", rgb(biomes))
+        z.writestr("heightmap.png", heightmap)
+        z.writestr("water.png", water)
+        z.writestr("lava.png", lava)
+        z.writestr("biomes.png", biomes)
         z.writestr("biomes.json", json.dumps(BIOME_MAPPING, indent=2))
         z.writestr("structures.json", json.dumps(structures(), indent=2))
         z.writestr("structures/hut.nbt", hut_template())
@@ -239,9 +245,81 @@ def build(path, tall):
             for name in files:
                 full = os.path.join(root, name)
                 z.write(full, "datapack/" + os.path.relpath(full, src).replace(os.sep, "/"))
+        for name, data in (extra or {}).items():
+            z.writestr(name, data)
     print("wrote", path)
+
+
+def volcano(size=96):
+    """A volcanic island in a lava sea: heights and lava surface (0 = none)."""
+    heights, lava = [], []
+    c = size / 2
+    for z in range(size):
+        hr, lr = [], []
+        for x in range(size):
+            d = dist(x, z, c, c) / c
+            wobble = 0.08 * math.sin(x * 0.3) + 0.08 * math.cos(z * 0.25)
+            h = 20 + max(0.0, 1.0 - d - wobble) * 90
+            if d < 0.12:
+                h = 80  # crater, filled with lava
+            hr.append(h)
+            lr.append(86 if d < 0.12 else (32 if h < 32 else 0))
+        heights.append(hr)
+        lava.append(lr)
+    return heights, lava
+
+
+def sky_island(size=64):
+    """A floating island: 0 (nothing) around it."""
+    heights = []
+    c = size / 2
+    for z in range(size):
+        row = []
+        for x in range(size):
+            d = dist(x, z, c, c) / c
+            row.append(0 if d > 0.9 else 140 + (0.9 - d) * 30)
+        heights.append(row)
+    return heights
+
+
+def build_dimensions(path):
+    heights, water, lava, biomes = terrain()
+    nether_heights, nether_lava = volcano()
+    island = {
+        "name": "Example Islands",
+        "dimension": "minecraft:overworld",
+        "outside": {"mode": "flat", "ground_level": 40, "water_level": 62, "biome": "minecraft:deep_ocean"},
+        "sea_level": 62,
+        "spawn": {"x": 0, "z": 30},
+        "decoration": {"features": {"disabled": ["minecraft:lake_lava_surface", "minecraft:lake_lava_underground"]}},
+    }
+    nether = {
+        "dimension": "minecraft:the_nether",
+        # Files not named here would be the overworld's (heightmap.png, biomes.png...): null means none.
+        "files": {"heightmap": "nether/heightmap.png", "lava": "nether/lava.png", "water": None, "biomes": None,
+                  "structures": None, "datapack": None},
+        "outside": {"mode": "flat", "ground_level": 20, "water_level": 0, "biome": "minecraft:basalt_deltas"},
+        "sea_level": 32,
+        "blocks": {"default": "minecraft:netherrack", "bedrock": True},
+        "decoration": {"carvers": False},
+    }
+    sky = {
+        "dimension": {"name": "Sky", "parameters": {"type": {"ambient_light": 0.2}}},
+        "files": {"heightmap": "sky/heightmap.png", "water": None, "lava": None, "biomes": None, "structures": None,
+                  "datapack": None},
+        "outside": {"mode": "void", "biome": "minecraft:cherry_grove"},
+        "decoration": {"carvers": False},
+    }
+    config = {"$schema": SCHEMAS + "map.schema.json", "dimensions": [island, nether, sky]}
+    extra = {
+        "nether/heightmap.png": gray8(nether_heights),
+        "nether/lava.png": gray8(nether_lava),
+        "sky/heightmap.png": gray8(sky_island()),
+    }
+    write_zip(path, config, gray8(heights), gray8(water), gray8(lava), rgb(biomes), extra)
 
 
 if __name__ == "__main__":
     build(os.path.join(HERE, "example.zip"), tall=False)
     build(os.path.join(HERE, "example-tall.zip"), tall=True)
+    build_dimensions(os.path.join(HERE, "example-dimensions.zip"))

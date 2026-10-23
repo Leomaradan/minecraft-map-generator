@@ -15,7 +15,9 @@ import java.util.Map;
  * @param water        null when absent
  * @param lava         null when absent
  * @param templates    raw {@code .nbt} files referenced by template structures, by ZIP path
- * @param datapack     files of the embedded datapack, by path relative to the datapack folder
+ * @param datapack     files of the embedded datapacks of the whole ZIP, by path relative to the datapack folder
+ * @param lowestY      lowest block Y the map produces (terrain, fluids, outside ground)
+ * @param highestY     highest block Y the map produces
  */
 public record MapPack(
         String id,
@@ -32,8 +34,15 @@ public record MapPack(
         Map<String, byte[]> templates,
         Map<String, byte[]> datapack,
         DimensionLayout layout,
-        TerrainSampler sampler
+        TerrainSampler sampler,
+        int lowestY,
+        int highestY
 ) {
+    /** The dimension this map generates. */
+    public MapConfig.DimensionTarget dimension() {
+        return this.config.target();
+    }
+
     public int width() {
         return this.heightmap.width();
     }
@@ -67,8 +76,12 @@ public record MapPack(
 
     /** One-line summary for the UI and logs. */
     public String summary() {
+        return this.terrainSummary() + (this.hasDatapack() ? ", datapack" : "");
+    }
+
+    /** {@link #summary()} without the datapack (shared by the maps of a ZIP). */
+    public String terrainSummary() {
         return this.width() + "x" + this.height() + " px, " + this.heightmap.bitDepth() + "-bit, Y " + this.layout.minY() + ".."
-                + this.layout.maxY() + ", " + this.biomeMapping.entries().size() + " biome(s), " + this.structures.size() + " structure(s)"
-                + (this.hasDatapack() ? ", datapack" : "");
+                + this.layout.maxY() + ", " + this.biomeMapping.entries().size() + " biome(s), " + this.structures.size() + " structure(s)";
     }
 }

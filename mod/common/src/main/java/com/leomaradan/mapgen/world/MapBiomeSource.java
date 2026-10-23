@@ -25,17 +25,21 @@ import java.util.stream.Stream;
 public final class MapBiomeSource extends BiomeSource {
     public static final MapCodec<MapBiomeSource> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
             Codec.STRING.optionalFieldOf("pack", "").forGetter(s -> s.packId),
+            Codec.STRING.optionalFieldOf("dimension", "").forGetter(s -> s.dimension),
             Biome.CODEC.listOf().optionalFieldOf("biomes", List.of()).forGetter(s -> s.biomes),
             Biome.CODEC.fieldOf("outside").forGetter(s -> s.outside)
     ).apply(i, i.stable(MapBiomeSource::new)));
 
     private final String packId;
+    /** Dimension of the map in the ZIP, empty for the first one. */
+    private final String dimension;
     private final List<Holder<Biome>> biomes;
     private final Holder<Biome> outside;
     private volatile TerrainSampler sampler;
 
-    public MapBiomeSource(String packId, List<Holder<Biome>> biomes, Holder<Biome> outside) {
+    public MapBiomeSource(String packId, String dimension, List<Holder<Biome>> biomes, Holder<Biome> outside) {
         this.packId = packId;
+        this.dimension = dimension;
         this.biomes = List.copyOf(biomes);
         this.outside = outside;
     }
@@ -114,7 +118,7 @@ public final class MapBiomeSource extends BiomeSource {
         }
         TerrainSampler s = this.sampler;
         if (s == null) {
-            MapPack pack = MapPacks.get(this.packId);
+            MapPack pack = MapPacks.get(this.packId, this.dimension);
             s = pack.sampler();
             this.sampler = s;
         }

@@ -20,6 +20,7 @@ public record MapConfig(
         double horizontalScale,
         HeightSpec height,
         Dimension dimension,
+        DimensionTarget target,
         int seaLevel,
         int biomeTransition,
         Outside outside,
@@ -50,7 +51,10 @@ public record MapConfig(
     private static final String DEFAULT_BLOCK = "minecraft:stone";
     private static final String VANILLA_STRUCTURES = "vanilla_structures";
 
-    /** Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must exist). */
+    /**
+     * Paths inside the ZIP. {@code explicit*} tells whether the user named the file (then it must
+     * exist). An empty path means "no such file" ({@code null} in map.json).
+     */
     public record Files(String heightmap, boolean explicitHeightmap, String biomes, boolean explicitBiomes, String biomeMapping, boolean explicitBiomeMapping,
                         String water, boolean explicitWater, String lava, boolean explicitLava,
                         String structures, boolean explicitStructures, String datapack) {
@@ -68,6 +72,115 @@ public record MapConfig(
 
     /** Explicit world height. Null fields are derived from the height mapping. */
     public record Dimension(Integer minY, Integer height) {
+    }
+
+    /**
+     * The dimension the map generates ({@code dimension} in map.json): an existing dimension whose
+     * generator is replaced, or a new dimension.
+     *
+     * @param id     dimension id
+     * @param custom true for a new dimension ({@code {"name": ..., "parameters": ...}})
+     * @param type   for a new dimension: its dimension type, an id (string) or an inline dimension
+     *               type (object); null for an overworld-like type sized to the map
+     */
+    public record DimensionTarget(String id, boolean custom, JsonElement type) {
+        public static final String OVERWORLD = "minecraft:overworld";
+        public static final String NETHER = "minecraft:the_nether";
+        public static final String END = "minecraft:the_end";
+        /** Namespace of new dimensions named without one. */
+        public static final String CUSTOM_NAMESPACE = "mapgen";
+        public static final DimensionTarget DEFAULT = new DimensionTarget(OVERWORLD, false, null);
+        private static final java.util.Set<String> VANILLA = java.util.Set.of(OVERWORLD, NETHER, END);
+
+        public boolean isVanilla() {
+            return VANILLA.contains(this.id);
+        }
+
+        public boolean isOverworld() {
+            return OVERWORLD.equals(this.id);
+        }
+
+        /** Whether the map decides the height of the dimension (else the dimension type is used as is). */
+        public boolean sizedToMap() {
+            return this.isVanilla() || (this.custom && (this.type == null || this.type.isJsonObject()));
+        }
+
+        /** The dimension type id given by {@code parameters.type}, or null. */
+        public String typeId() {
+            return this.type != null && this.type.isJsonPrimitive() ? Json.normalizeId(this.type.getAsString()) : null;
+        }
+
+        static DimensionTarget parse(JsonObject root, String path, ValidationReport report) {
+            JsonElement e = root.get("dimension");
+            String p = path + ".dimension";
+            if (e == null || e.isJsonNull()) {
+                return DEFAULT;
+            }
+            if (e.isJsonPrimitive() && e.getAsJsonPrimitive().isString()) {
+                String id = e.getAsString();
+                if (!Json.isValidId(id)) {
+                    report.error(p + ": \"" + id + "\" is not a valid dimension id");
+                    return DEFAULT;
+                }
+                return new DimensionTarget(Json.normalizeId(id), false, null);
+            }
+            if (!e.isJsonObject()) {
+                report.error(p + " must be a dimension id or {\"name\": ..., \"parameters\": ...}");
+                return DEFAULT;
+            }
+            JsonObject o = e.getAsJsonObject();
+            Json.checkKnownKeys(o, p, report, "name", "parameters");
+            String name = Json.string(o, "name", null, p, report);
+            if (name == null || name.isBlank()) {
+                report.error(p + ".name is required for a new dimension" + (o.has(KEY_MIN_Y) || o.has(KEY_HEIGHT)
+                        ? " (the world height is set with \"dimension_parameter\")" : ""));
+                return DEFAULT;
+            }
+            String id = customId(name.trim(), p, report);
+            if (id == null) {
+                return DEFAULT;
+            }
+            if (VANILLA.contains(id)) {
+                report.error(p + ": " + id + " already exists; use \"dimension\": \"" + id + "\" to replace its generator");
+                return DEFAULT;
+            }
+            return new DimensionTarget(id, true, parseType(Json.object(o, "parameters", p, report), p + ".parameters", report));
+        }
+
+        /** {@code namespace:path} as is, or a name turned into {@code mapgen:<name>} (lower case, other characters as {@code _}). */
+        private static String customId(String name, String p, ValidationReport report) {
+            if (name.indexOf(':') >= 0) {
+                if (!Json.isValidId(name)) {
+                    report.error(p + ".name: \"" + name + "\" is not a valid dimension id (lower case letters, digits, _ - . /)");
+                    return null;
+                }
+                return name;
+            }
+            String slug = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]", "_");
+            return CUSTOM_NAMESPACE + ":" + slug;
+        }
+
+        private static JsonElement parseType(JsonObject parameters, String p, ValidationReport report) {
+            if (parameters == null) {
+                return null;
+            }
+            if (parameters.has("generator")) {
+                report.error(p + ".generator can't be set: the map is the generator of the dimension");
+            }
+            Json.checkKnownKeys(parameters, p, report, "type", "generator");
+            JsonElement type = parameters.get("type");
+            if (type == null || type.isJsonNull()) {
+                return null;
+            }
+            if (type.isJsonPrimitive() && type.getAsJsonPrimitive().isString() && Json.isValidId(type.getAsString())) {
+                return type;
+            }
+            if (type.isJsonObject()) {
+                return type;
+            }
+            report.error(p + ".type must be a dimension type id or a dimension type object");
+            return null;
+        }
     }
 
     public enum OutsideMode {
@@ -257,7 +370,7 @@ public record MapConfig(
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
         Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", KEY_HEIGHT, "dimension_parameter", "sea_level",
-                "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema");
+                "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema", "dimension");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
         if (format > CURRENT_FORMAT) {
@@ -286,6 +399,7 @@ public record MapConfig(
 
         HeightSpec height = parseHeight(Json.object(root, KEY_HEIGHT, p, report), report);
         Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), report);
+        DimensionTarget target = DimensionTarget.parse(root, p, report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
         int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
         if (biomeTransition < 0 || biomeTransition > MAX_BIOME_TRANSITION) {
@@ -300,7 +414,10 @@ public record MapConfig(
         Snow snow = Snow.parse(root, "snow", p, report);
         VanillaStructures vanilla = parseVanillaStructures(root, report);
 
-        return new MapConfig(format, files, originX, originZ, scale, height, dimension, seaLevel, biomeTransition, outside, spawn, blocks, decoration,
+        if (spawn != null && !target.isOverworld()) {
+            report.warn("map.json.spawn is only used in the overworld; it is ignored in " + target.id());
+        }
+        return new MapConfig(format, files, originX, originZ, scale, height, dimension, target, seaLevel, biomeTransition, outside, spawn, blocks, decoration,
                 snow != null ? snow : Snow.ALL, vanilla);
     }
 
@@ -355,11 +472,18 @@ public record MapConfig(
                 file(json, FILE_WATER, "water.png", report), Json.has(json, FILE_WATER),
                 file(json, FILE_LAVA, "lava.png", report), Json.has(json, FILE_LAVA),
                 file(json, FILE_STRUCTURES, "structures.json", report), Json.has(json, FILE_STRUCTURES),
-                normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
+                json.has("datapack") && json.get("datapack").isJsonNull() ? "" : normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
     }
 
-    /** A file path inside the ZIP, with "/" separators and no leading slash. */
+    /** A file path inside the ZIP, with "/" separators and no leading slash; empty for {@code null} (no file). */
     private static String file(JsonObject json, String key, String def, ValidationReport report) {
+        if (json.has(key) && json.get(key).isJsonNull()) {
+            if (key.equals(FILE_HEIGHTMAP)) {
+                report.error("map.json.files.heightmap can't be null: every map needs a heightmap");
+                return def;
+            }
+            return "";
+        }
         String path = Json.string(json, key, def, "map.json.files", report).replace('\\', '/');
         while (path.startsWith("/")) {
             path = path.substring(1);

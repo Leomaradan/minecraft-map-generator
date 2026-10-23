@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MapPackReaderTest {
@@ -157,7 +159,183 @@ class MapPackReaderTest {
 
         this.files.clear();
         MapPackReader.Result old = put("map.json", "{\"dimension\": {\"min_y\": -128}}").put("heightmap.png", heightmap8(4, 4)).read();
-        assertTrue(anyContains(old.report().warnings(), "unknown key \"dimension\""));
+        assertFalse(old.ok());
+        assertTrue(anyContains(old.report().errors(), "the world height is set with \"dimension_parameter\""));
+    }
+
+    @Test
+    void defaultsToOverworld() throws IOException {
+        MapPackReader.Result result = put("map.json", "{}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(result.ok(), result.report().toString());
+        assertEquals(MapConfig.DimensionTarget.DEFAULT, result.pack().dimension());
+        assertEquals(1, result.archive().dimensions().size());
+        assertSame(result.pack(), result.archive().get(""));
+        assertSame(result.pack(), result.archive().get("minecraft:overworld"));
+        assertSame(result.pack(), result.archive().overworld());
+    }
+
+    @Test
+    void readsDimensionId() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"dimension\": \"the_nether\", \"spawn\": {\"x\": 1, \"z\": 1}}")
+                .put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(result.ok(), result.report().toString());
+        MapConfig.DimensionTarget target = result.pack().dimension();
+        assertEquals("minecraft:the_nether", target.id());
+        assertFalse(target.custom());
+        assertTrue(target.sizedToMap());
+        assertNull(result.archive().overworld());
+        // The Nether starts at Y 0, 256 blocks high.
+        assertEquals(DimensionLayout.NETHER_END, result.pack().layout());
+        assertTrue(result.archive().summary().startsWith("minecraft:the_nether, 4x4 px"), result.archive().summary());
+        assertTrue(anyContains(result.report().warnings(), "spawn is only used in the overworld"));
+        assertThrows(IllegalArgumentException.class, () -> result.archive().get("minecraft:overworld"));
+
+        this.files.clear();
+        MapPackReader.Result mod = put("map.json", "{\"dimension\": \"twilightforest:twilight_forest\"}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(mod.ok(), mod.report().toString());
+        assertFalse(mod.pack().dimension().isVanilla());
+        assertFalse(mod.pack().dimension().sizedToMap());
+    }
+
+    @Test
+    void readsCustomDimension() throws IOException {
+        MapPackReader.Result result = put("map.json", "{\"dimension\": {\"name\": \"Sky Islands\"}}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(result.ok(), result.report().toString());
+        MapConfig.DimensionTarget target = result.pack().dimension();
+        assertEquals("mapgen:sky_islands", target.id());
+        assertTrue(target.custom());
+        assertTrue(target.sizedToMap());
+        assertNull(target.type());
+
+        this.files.clear();
+        MapPackReader.Result typed = put("map.json", "{\"dimension\": {\"name\": \"mymap:caves\", \"parameters\": {\"type\": \"the_nether\"}}}")
+                .put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(typed.ok(), typed.report().toString());
+        assertEquals("mymap:caves", typed.pack().dimension().id());
+        assertEquals("minecraft:the_nether", typed.pack().dimension().typeId());
+        assertFalse(typed.pack().dimension().sizedToMap());
+
+        this.files.clear();
+        MapPackReader.Result inline = put("map.json", "{\"dimension\": {\"name\": \"dark\", \"parameters\": {\"type\": {\"has_skylight\": false}}}}")
+                .put("heightmap.png", heightmap8(4, 4)).read();
+        assertTrue(inline.ok(), inline.report().toString());
+        assertTrue(inline.pack().dimension().type().isJsonObject());
+        assertNull(inline.pack().dimension().typeId());
+        assertTrue(inline.pack().dimension().sizedToMap());
+    }
+
+    @Test
+    void reportsBadDimensions() throws IOException {
+        String[][] cases = {
+                {"\"Not Valid\"", "is not a valid dimension id"},
+                {"42", "must be a dimension id or"},
+                {"{\"parameters\": {}}", ".name is required"},
+                {"{\"name\": \"minecraft:the_end\"}", "minecraft:the_end already exists; use"},
+                {"{\"name\": \"Bad:Name\"}", "is not a valid dimension id"},
+                {"{\"name\": \"x\", \"parameters\": {\"generator\": {}}}", "generator can't be set"},
+                {"{\"name\": \"x\", \"parameters\": {\"type\": 3}}", "type must be a dimension type id or"},
+        };
+        for (String[] c : cases) {
+            this.files.clear();
+            MapPackReader.Result result = put("map.json", "{\"dimension\": " + c[0] + "}").put("heightmap.png", heightmap8(4, 4)).read();
+            assertFalse(result.ok(), c[0]);
+            assertTrue(anyContains(result.report().errors(), c[1]), c[0] + ": " + result.report());
+        }
+    }
+
+    @Test
+    void readsDimensionsFormat() throws IOException {
+        MapPackReader.Result result = put("map.json", """
+                        {
+                          "$schema": "x",
+                          "dimensions": [
+                            {"name": "Island", "dimension": "minecraft:overworld"},
+                            {"dimension": "minecraft:the_nether", "files": {"heightmap": "nether/heightmap.png", "datapack": "nether_pack/"}},
+                            {"dimension": {"name": "sky"}, "files": {"heightmap": "sky.png"}, "sea_level": 0}
+                          ]
+                        }
+                        """)
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("nether/heightmap.png", heightmap8(8, 8))
+                .put("sky.png", heightmap8(2, 2))
+                .put("datapack/pack.mcmeta", "{}")
+                .put("datapack/data/a/x.json", "{}")
+                .put("nether_pack/pack.mcmeta", "{}")
+                .put("nether_pack/data/b/y.json", "{}")
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        MapArchive archive = result.archive();
+        assertEquals("Island", archive.name());
+        assertEquals(3, archive.dimensions().size());
+        assertEquals(8, archive.get("minecraft:the_nether").width());
+        assertEquals(2, archive.get("mapgen:sky").width());
+        assertEquals(0, archive.get("mapgen:sky").config().seaLevel());
+        assertSame(archive.dimensions().getFirst(), archive.overworld());
+        // The datapack folders of all maps are merged, and shared by every map.
+        assertTrue(archive.datapack().containsKey("data/a/x.json"));
+        assertTrue(archive.datapack().containsKey("data/b/y.json"));
+        assertSame(archive.datapack(), archive.get("mapgen:sky").datapack());
+        assertTrue(archive.summary().startsWith("3 dimensions"));
+    }
+
+    @Test
+    void nullFilesAreAbsent() throws IOException {
+        MapPackReader.Result result = put("map.json", """
+                        {"dimensions": [
+                          {"dimension": "minecraft:overworld"},
+                          {"dimension": "minecraft:the_end", "files": {"heightmap": "end.png", "water": null, "biomes": null, "datapack": null}}
+                        ]}
+                        """)
+                .put("heightmap.png", heightmap8(4, 4))
+                .put("water.png", heightmap8(4, 4))
+                .put("end.png", heightmap8(2, 2))
+                .read();
+        assertTrue(result.ok(), result.report().toString());
+        MapPack end = result.archive().get("minecraft:the_end");
+        assertNull(end.water());
+        assertNotNull(result.archive().overworld().water());
+        assertEquals(2, end.width());
+
+        this.files.clear();
+        MapPackReader.Result invalid = put("map.json", "{\"files\": {\"heightmap\": null}}").put("heightmap.png", heightmap8(4, 4)).read();
+        assertFalse(invalid.ok());
+        assertTrue(anyContains(invalid.report().errors(), "heightmap can't be null"));
+    }
+
+    @Test
+    void reportsBadDimensionsFormat() throws IOException {
+        MapPackReader.Result result = put("map.json", """
+                        {"dimensions": [
+                          {"dimension": "minecraft:overworld"},
+                          {"dimension": "overworld", "files": {"heightmap": "missing.png"}},
+                          {"sea_level": 10},
+                          3
+                        ], "name": "x"}
+                        """)
+                .put("heightmap.png", heightmap8(4, 4))
+                .read();
+        assertFalse(result.ok());
+        assertTrue(anyContains(result.report().errors(), "map.json.dimensions[2].dimension is required"));
+        assertTrue(anyContains(result.report().errors(), "map.json.dimensions[3] must be an object"));
+        assertTrue(anyContains(result.report().warnings(), "unknown key \"name\""));
+
+        this.files.clear();
+        MapPackReader.Result duplicate = put("map.json", """
+                        {"dimensions": [
+                          {"dimension": "minecraft:overworld"},
+                          {"dimension": "overworld", "files": {"heightmap": "missing.png"}}
+                        ]}
+                        """)
+                .put("heightmap.png", heightmap8(4, 4))
+                .read();
+        assertFalse(duplicate.ok());
+        assertTrue(anyContains(duplicate.report().errors(), "dimensions[1]: another map already generates minecraft:overworld"));
+        assertTrue(anyContains(duplicate.report().errors(), "dimensions[1] (minecraft:overworld): missing.png is not in the ZIP"));
+
+        this.files.clear();
+        MapPackReader.Result empty = put("map.json", "{\"dimensions\": []}").read();
+        assertFalse(empty.ok());
+        assertTrue(anyContains(empty.report().errors(), "must be a non-empty array"));
     }
 
     @Test
