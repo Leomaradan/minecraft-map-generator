@@ -1,6 +1,6 @@
 // Builds the web versions of the landing page screenshots.
 //
-//   npm run screenshots -- <folder with screen1.png, screen2.png, ...>
+//   pnpm screenshots <folder with screen1.png, screen2.png, ...>
 //
 // For each screenN.png, writes public/screenshots/screenN.webp (full size, shown when the
 // screenshot is opened) and screenN-thumb.webp (the gallery thumbnail).
@@ -10,7 +10,7 @@ import sharp from 'sharp';
 
 const source = process.argv[2];
 if (!source) {
-  console.error('Usage: npm run screenshots -- <folder with screenN.png files>');
+  console.error('Usage: pnpm screenshots <folder with screenN.png files>');
   process.exit(1);
 }
 const out = resolve(import.meta.dirname, '../public/screenshots');

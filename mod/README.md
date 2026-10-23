@@ -62,7 +62,6 @@ with the list of problems if it is invalid), copied into the world, and its data
 
 Run these commands from this `mod/` folder.
 
-
 Gradle must run on Java 25 (set `JAVA_HOME`), which Loom requires. The core-only build and tests also
 work on Java 21.
 
@@ -72,6 +71,18 @@ work on Java 21.
 ./gradlew :fabric:runClient       # or :neoforge:runClient, :fabric:runServer, ...
 python3 example/make_example.py   # rebuild the example maps
 ```
+
+### Continuous integration
+
+* `.github/workflows/mod.yml` builds and tests the mod on every change under `mod/`. It publishes two
+  workflow artifacts, `mapgen-fabric` and `mapgen-neoforge`, each holding only the mod jar
+  (`mapgen-<loader>-<minecraft version>-<version>.jar`). The sources and javadoc jars stay in the
+  local `build/libs` folders.
+* `.github/workflows/release.yml` runs on a `v*` tag and creates a GitHub release with the same two
+  jars and the example map ZIPs.
+
+Artifact names come from `mod_id` in `gradle.properties`, so the workflows can be copied to another
+mod built from the same template without changes.
 
 ### Project layout
 

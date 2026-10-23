@@ -37,7 +37,7 @@ interface State {
   commitStroke: () => void;
   doUndo: () => void;
   doRedo: () => void;
-  addBody: (fluid: FluidBody['fluid']) => FluidBody;
+  addBody: (fluid: FluidBody['fluid'], mode: 'lake' | 'flow' | 'river') => FluidBody;
   updateBody: (id: number, patch: Partial<FluidBody>) => void;
   removeBody: (id: number) => void;
   addBiome: () => BiomeEntry;
@@ -160,10 +160,14 @@ export const useStore = create<State>((set, get) => ({
     for (const p of last) p.indexes.forEach((idx, i) => { project[p.field][idx] = p.after[i]; });
     set({ redo: redo.slice(0, -1), undo: [...undo, last], rev: get().rev + 1 });
   },
-  addBody: (fluid) => {
+  addBody: (fluid, mode) => {
     const p = get().project;
-    const count = p.bodies.filter((b) => b.fluid === fluid).length + 1;
-    const body: FluidBody = { id: p.nextId, name: `${fluid === 'water' ? 'Water' : 'Lava'} ${count}`, fluid, mode: 'lake', offset: 0 };
+    const names = { lake: ['Lake', 'Lava lake'], flow: ['Free water flow', 'Free lava flow'], river: ['River', 'Lava river'] };
+    const body: FluidBody = { id: p.nextId, name: names[mode][fluid === 'water' ? 0 : 1], fluid, mode, offset: 0 };
+    if (mode === 'river') {
+      body.nodes = [];
+      body.edges = [];
+    }
     get().updateProject((q) => { q.bodies = [...q.bodies, body]; q.nextId++; });
     return body;
   },

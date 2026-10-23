@@ -29,7 +29,7 @@ ctx.onmessage = (e: MessageEvent<Request>) => {
     if (req.kind === 'solve') {
       const { labels, raw, bodies, heightmap, mapping } = req.args;
       const r = solveFluids(labels, raw, bodies, heightmap, mapping);
-      ctx.postMessage({ id: req.id, ok: true, result: r } satisfies Response, [r.water.buffer, r.lava.buffer, r.low.buffer, r.levels.buffer]);
+      ctx.postMessage({ id: req.id, ok: true, result: r } satisfies Response, [r.water.buffer, r.lava.buffer, r.low.buffer, r.levels.buffer, r.anchors.buffer, r.arrows.buffer]);
     } else if (req.kind === 'export') {
       const zip = exportZip(req.project);
       ctx.postMessage({ id: req.id, ok: true, result: zip } satisfies Response, [zip.buffer]);

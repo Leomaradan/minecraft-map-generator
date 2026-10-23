@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { JsonObject } from '../../lib/project';
 import { VANILLA_STRUCTURES } from '../../data/structures';
 import { resolvedTemplate } from '../../lib/zipIO';
 import type { Mirror, Rotation, StructureTemplate } from '../../lib/project';
@@ -33,6 +34,12 @@ function TemplateFields({ t, set }: { t: Pick<StructureTemplate, 'rotation' | 'm
   );
 }
 
+/** The spawn in map.json, when it has an X and a Z. */
+function spawnOf(config: JsonObject): JsonObject | null {
+  const s = config.spawn as JsonObject | undefined;
+  return s && typeof s.x === 'number' && typeof s.z === 'number' ? s : null;
+}
+
 export function Structures() {
   const project = useStore((s) => s.project);
   const addNbt = useStore((s) => s.addNbt);
@@ -42,17 +49,32 @@ export function Structures() {
   const addInstance = useStore((s) => s.addInstance);
   const updateInstance = useStore((s) => s.updateInstance);
   const removeInstance = useStore((s) => s.removeInstance);
+  const setConfig = useStore((s) => s.setConfig);
   const focusOn = useStore((s) => s.focusOn);
   const hm = project.heightmap;
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [mode, setMode] = useState<'place' | 'move'>('place');
-  const drag = useRef<number | null>(null);
+  const drag = useRef<number | 'spawn' | null>(null);
+  const [spawnOn, setSpawnOn] = useState(false);
+  /** Zoom of the map (screen pixels per map pixel), for hit tests in screen pixels. */
+  const zoom = useRef(1);
   const [newId, setNewId] = useState('');
   const scale = (project.config.horizontal_scale as number | undefined) ?? 1;
   const template = project.templates.find((t) => t.id === templateId) ?? null;
   const instance = project.instances.find((i) => i.id === selected) ?? null;
   const instanceTemplate = instance ? resolvedTemplate(project, instance) : null;
+
+  // The spawn is in world coordinates: the same conversion as the status bar of the map
+  const origin = (project.config.origin as number[] | undefined) ?? (hm ? [-Math.floor((hm.width * scale) / 2), -Math.floor((hm.height * scale) / 2)] : [0, 0]);
+  const spawn = spawnOf(project.config);
+  const spawnPx = spawn ? { x: Math.floor(((spawn.x as number) - origin[0]) / scale), z: Math.floor(((spawn.z as number) - origin[1]) / scale) } : null;
+  const setSpawn = (p: Pt) => {
+    const c = clampTo(p);
+    setConfig('spawn', { ...((project.config.spawn as JsonObject | undefined) ?? {}), x: origin[0] + Math.floor((c.x + 0.5) * scale), z: origin[1] + Math.floor((c.z + 0.5) * scale) });
+  };
+  const select = (id: number | null) => { setSelected(id); setSpawnOn(false); };
+  const selectSpawn = () => { setSelected(null); setSpawnOn(true); };
 
   const hit = (p: Pt) =>
     [...project.instances].reverse().find((i) => {
@@ -65,6 +87,16 @@ export function Structures() {
   const clampTo = (p: Pt) => (hm ? { x: Math.max(0, Math.min(hm.width - 1, p.x)), z: Math.max(0, Math.min(hm.height - 1, p.z)) } : p);
 
   const down = (p: Pt) => {
+    if (mode === 'move' && spawnOn) {
+      setSpawn(p);
+      drag.current = 'spawn';
+      return;
+    }
+    if (spawnPx && Math.hypot(p.x - spawnPx.x, p.z - spawnPx.z) <= Math.max(1, 9 / zoom.current)) {
+      selectSpawn();
+      drag.current = 'spawn';
+      return;
+    }
     if (mode === 'move' && instance) {
       // Move mode: the selected placement jumps to the click and follows the drag
       updateInstance(instance.id, clampTo(p));
@@ -73,26 +105,37 @@ export function Structures() {
     }
     const h = hit(p);
     if (h) {
-      setSelected(h.id);
+      select(h.id);
       drag.current = h.id;
       return;
     }
     if (!hm || !template || p.x < 0 || p.z < 0 || p.x >= hm.width || p.z >= hm.height) {
-      setSelected(null);
+      select(null);
       return;
     }
     const id = addInstance(template.id, p.x, p.z);
-    setSelected(id);
+    select(id);
   };
   const nudge = (dx: number, dz: number) => {
-    if (instance) updateInstance(instance.id, clampTo({ x: instance.x + dx, z: instance.z + dz }));
+    if (spawnOn && spawnPx) setSpawn({ x: spawnPx.x + dx, z: spawnPx.z + dz });
+    else if (instance) updateInstance(instance.id, clampTo({ x: instance.x + dx, z: instance.z + dz }));
   };
   const move = (p: Pt) => {
-    if (drag.current !== null && hm) updateInstance(drag.current, clampTo(p));
+    if (drag.current === 'spawn') setSpawn(p);
+    else if (drag.current !== null && hm) updateInstance(drag.current, clampTo(p));
   };
   const up = () => { drag.current = null; };
 
-  const markers = project.instances.map((i) => {
+  const markers = (k: number) => {
+    zoom.current = k;
+    return [...instanceMarkers, spawnPx && (
+      <g key="spawn" className={spawnOn ? 'spawn on' : 'spawn'} style={{ strokeWidth: 1.5 / k }}>
+        <circle cx={spawnPx.x + 0.5} cy={spawnPx.z + 0.5} r={7 / k} />
+        <path d={`M${spawnPx.x + 0.5 - 10 / k},${spawnPx.z + 0.5}h${20 / k}M${spawnPx.x + 0.5},${spawnPx.z + 0.5 - 10 / k}v${20 / k}`} />
+      </g>
+    )];
+  };
+  const instanceMarkers = project.instances.map((i) => {
     const t = resolvedTemplate(project, i);
     if (!t) return null;
     const [w, d] = footprint(t, scale);
@@ -105,11 +148,60 @@ export function Structures() {
     );
   });
 
+  const nudgePad = (
+    <div className="nudge" title="Move by 1 pixel (Shift: 10)">
+      <span />
+      <button type="button" onClick={(e) => nudge(0, e.shiftKey ? -10 : -1)}>↑</button>
+      <span />
+      <button type="button" onClick={(e) => nudge(e.shiftKey ? -10 : -1, 0)}>←</button>
+      <button type="button" onClick={(e) => nudge(0, e.shiftKey ? 10 : 1)}>↓</button>
+      <button type="button" onClick={(e) => nudge(e.shiftKey ? 10 : 1, 0)}>→</button>
+    </div>
+  );
+
   return (
     <>
       <aside className="panel">
         <h2>Structures</h2>
         <RefToggle />
+        <h3>Spawn</h3>
+        <ul className="list">
+          <li className={spawnOn ? 'active' : ''} onClick={() => { selectSpawn(); if (spawnPx) focusOn(spawnPx.x, spawnPx.z); }}>
+            <span className="swatch" style={{ background: '#40e0ff' }} />
+            <span>World spawn</span>
+            <small>{spawn ? `${spawn.x}, ${spawn.z}` : 'vanilla'}</small>
+          </li>
+        </ul>
+        {spawnOn && (
+          <div className="card">
+            <div className="row">
+              <button type="button" className={mode === 'move' ? 'on' : ''} onClick={() => setMode(mode === 'move' ? 'place' : 'move')} title="While on, a click or drag on the map moves the spawn">
+                {mode === 'move' ? 'Moving: click the map' : spawn ? 'Move on map' : 'Place on map'}
+              </button>
+              {spawnPx && <button type="button" onClick={() => focusOn(spawnPx.x, spawnPx.z)}>Find</button>}
+            </div>
+            {spawnPx ? (
+              <>
+                {nudgePad}
+                <Field label="World X, Z">
+                  <div className="row">
+                    <NumInput value={spawn!.x as number} onChange={(v) => setConfig('spawn', { ...spawn!, x: v ?? 0 })} />
+                    <NumInput value={spawn!.z as number} onChange={(v) => setConfig('spawn', { ...spawn!, z: v ?? 0 })} />
+                  </div>
+                </Field>
+                <Field label="Y (empty: on the surface)">
+                  <NumInput value={spawn!.y as number | undefined} onChange={(v) => {
+                    const { y: _, ...rest } = spawn!;
+                    setConfig('spawn', v === undefined ? rest : { ...rest, y: v });
+                  }} />
+                </Field>
+                <p className="hint">Drag the marker to move the spawn. It can be cleared in General to go back to the vanilla spawn.</p>
+              </>
+            ) : (
+              <p className="hint">Not set: Minecraft chooses the spawn. Place it on the map to choose it.</p>
+            )}
+          </div>
+        )}
         <h3>Templates</h3>
         <p className="hint">A template is a reusable preset: a .nbt file or a registered structure with its settings. Select one, then click on the map to place it. Drag a marker to move it.</p>
         <input type="file" accept=".nbt" id="nbt" hidden onChange={async (e) => {
@@ -160,7 +252,7 @@ export function Structures() {
           {project.instances.map((i) => {
             const t = project.templates.find((x) => x.id === i.templateId);
             return (
-              <li key={i.id} className={i.id === selected ? 'active' : ''} onClick={() => { setSelected(i.id); focusOn(i.x, i.z); }}>
+              <li key={i.id} className={i.id === selected ? 'active' : ''} onClick={() => { select(i.id); focusOn(i.x, i.z); }}>
                 <span className="swatch" style={{ background: t?.kind === 'template' ? '#ffd800' : '#d050ff' }} />
                 <span>{t?.name ?? '?'}</span>
                 <small>{i.x}, {i.z}</small>
@@ -177,14 +269,7 @@ export function Structures() {
               </button>
               <button type="button" onClick={() => focusOn(instance.x, instance.z)}>Find</button>
             </div>
-            <div className="nudge" title="Move by 1 pixel (Shift: 10)">
-              <span />
-              <button type="button" onClick={(e) => nudge(0, e.shiftKey ? -10 : -1)}>↑</button>
-              <span />
-              <button type="button" onClick={(e) => nudge(e.shiftKey ? -10 : -1, 0)}>←</button>
-              <button type="button" onClick={(e) => nudge(0, e.shiftKey ? 10 : 1)}>↓</button>
-              <button type="button" onClick={(e) => nudge(e.shiftKey ? 10 : 1, 0)}>→</button>
-            </div>
+            {nudgePad}
             <Field label="Pixel X, Z">
               <div className="row">
                 <NumInput value={instance.x} onChange={(v) => updateInstance(instance.id, { x: v ?? 0 })} />
@@ -202,7 +287,7 @@ export function Structures() {
         )}
         <datalist id="structure-ids">{VANILLA_STRUCTURES.map((s) => <option key={s} value={s} />)}</datalist>
       </aside>
-      <MapView onDown={down} onMove={move} onUp={up} markers={markers} cursor={mode === 'move' && instance ? 'move' : template ? 'copy' : 'default'} />
+      <MapView onDown={down} onMove={move} onUp={up} markers={markers} cursor={mode === 'move' && (instance || spawnOn) ? 'move' : template ? 'copy' : 'default'} />
     </>
   );
 }
