@@ -99,23 +99,27 @@ public final class MapPackReader {
         }
         JsonObject root = configJson.getAsJsonObject();
         String zipName = stripExtension(zipPath.getFileName().toString());
+        Source source = new Source(zipPath, id, zip, entries);
         List<MapPack> packs = root.has(KEY_DIMENSIONS)
-                ? readDimensions(zipPath, id, zip, entries, root, zipName, report)
-                : readMaps(zipPath, id, zip, entries, List.of(root), zipName, report);
-        if (packs == null || report.hasErrors()) {
+                ? readDimensions(source, root, zipName, report)
+                : readMaps(source, List.of(root), zipName, report);
+        if (packs.isEmpty() || report.hasErrors()) {
             return null;
         }
         return new MapArchive(id, packs.getFirst().name(), zipPath, packs);
     }
 
+    /** The ZIP being read. */
+    private record Source(Path path, String id, ZipFile zip, Map<String, ZipEntry> entries) {
+    }
+
     /** The {@code "dimensions"} format: one map.json per dimension. */
-    private static List<MapPack> readDimensions(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, JsonObject root,
-                                                String zipName, ValidationReport report) throws IOException {
+    private static List<MapPack> readDimensions(Source source, JsonObject root, String zipName, ValidationReport report) throws IOException {
         Json.checkKnownKeys(root, CONFIG_FILE, report, "$schema", KEY_DIMENSIONS);
         JsonArray list = Json.array(root, KEY_DIMENSIONS, CONFIG_FILE, report);
         if (list == null || list.isEmpty()) {
             report.error(CONFIG_FILE + "." + KEY_DIMENSIONS + " must be a non-empty array of maps");
-            return null;
+            return List.of();
         }
         List<JsonObject> maps = new ArrayList<>();
         for (int i = 0; i < list.size(); i++) {
@@ -128,12 +132,13 @@ public final class MapPackReader {
                 maps.add(list.get(i).getAsJsonObject());
             }
         }
-        return report.hasErrors() ? null : readMaps(zipPath, id, zip, entries, maps, zipName, report);
+        return report.hasErrors() ? List.of() : readMaps(source, maps, zipName, report);
     }
 
-    /** Reads the maps of a ZIP; null when one is unusable. With several maps, messages name their dimension. */
-    private static List<MapPack> readMaps(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, List<JsonObject> maps,
-                                          String zipName, ValidationReport report) throws IOException {
+    /** Reads the maps of a ZIP; empty when one is unusable. With several maps, messages name their dimension. */
+    private static List<MapPack> readMaps(Source source, List<JsonObject> maps, String zipName, ValidationReport report) throws IOException {
+        ZipFile zip = source.zip();
+        Map<String, ZipEntry> entries = source.entries();
         List<ValidationReport> reports = new ArrayList<>();
         List<MapConfig> configs = new ArrayList<>();
         Map<String, byte[]> datapack = new LinkedHashMap<>();
@@ -154,7 +159,7 @@ public final class MapPackReader {
             MapConfig config = configs.get(i);
             ValidationReport own = reports.get(i);
             String name = maps.get(i).has("name") && maps.get(i).get("name").isJsonPrimitive() ? maps.get(i).get("name").getAsString() : zipName;
-            MapPack pack = readMap(zipPath, id, zip, entries, config, name, shared, own);
+            MapPack pack = readMap(source, config, name, shared, own);
             if (own != report) {
                 report.addAll(own, KEY_DIMENSIONS + "[" + i + "] (" + config.target().id() + "): ");
             }
@@ -164,11 +169,13 @@ public final class MapPackReader {
             }
             packs.add(pack);
         }
-        return report.hasErrors() ? null : packs;
+        return report.hasErrors() ? List.of() : packs;
     }
 
-    private static MapPack readMap(Path zipPath, String id, ZipFile zip, Map<String, ZipEntry> entries, MapConfig config, String name,
-                                   Map<String, byte[]> datapack, ValidationReport report) throws IOException {
+    private static MapPack readMap(Source source, MapConfig config, String name, Map<String, byte[]> datapack, ValidationReport report)
+            throws IOException {
+        ZipFile zip = source.zip();
+        Map<String, ZipEntry> entries = source.entries();
         MapConfig.Files files = config.files();
         GrayRaster heightmap = readHeightmap(zip, entries, files, report);
         if (heightmap == null) {
@@ -203,7 +210,7 @@ public final class MapPackReader {
         if (report.hasErrors()) {
             return null;
         }
-        return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
+        return new MapPack(source.id(), name, source.path(), config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
                 templates, datapack, layout, sampler, range[0], range[1]);
     }
 

@@ -70,7 +70,7 @@ public record MapSettings(String pack, String dimension, String name, int minY, 
     public static final Codec<MapSettings> CODEC = RecordCodecBuilder.create(i -> i.group(
             FIELDS.forGetter(s -> s),
             Codec.STRING.optionalFieldOf("dimension", "").forGetter(MapSettings::dimension)
-    ).apply(i, i.stable((settings, dimension) -> settings.withDimension(dimension))));
+    ).apply(i, i.stable(MapSettings::withDimension)));
 
     /** Settings of a world type selected without a ZIP yet. */
     public static final MapSettings UNCONFIGURED = new MapSettings("", "", "", DimensionLayout.VANILLA_MIN_Y, DimensionLayout.VANILLA_HEIGHT, 63,

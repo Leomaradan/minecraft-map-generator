@@ -48,6 +48,7 @@ public final class MapWorlds {
     private static final String NETHER_TYPE_TEMPLATE = "/mapgen/the_nether_dimension_type.json";
     private static final String END_TYPE_TEMPLATE = "/mapgen/the_end_dimension_type.json";
     private static final String LOGICAL_HEIGHT = "logical_height";
+    private static final String DOES_NOT_EXIST = " does not exist";
 
     private MapWorlds() {
     }
@@ -73,7 +74,7 @@ public final class MapWorlds {
         }
         Holder<Biome> outside = biome(biomes, pack.config().outside().biome());
         if (outside == null) {
-            report.error("outside biome " + pack.config().outside().biome() + " does not exist");
+            report.error("outside biome " + pack.config().outside().biome() + DOES_NOT_EXIST);
         }
         if (report.hasErrors()) {
             return null;
@@ -134,7 +135,7 @@ public final class MapWorlds {
             String typeId = target.typeId() != null ? target.typeId() : target.id();
             Optional<? extends Holder<DimensionType>> type = types.get(ResourceKey.create(Registries.DIMENSION_TYPE, Identifier.parse(typeId)));
             if (type.isEmpty()) {
-                report.error("dimension type " + typeId + " does not exist");
+                report.error("dimension type " + typeId + DOES_NOT_EXIST);
                 return null;
             }
             return type.get();
@@ -144,7 +145,7 @@ public final class MapWorlds {
             stem = datapackDimensions.getOptional(key).orElse(null);
         }
         if (stem == null) {
-            report.error("dimension " + target.id() + " does not exist; is the mod that adds it installed?");
+            report.error("dimension " + target.id() + DOES_NOT_EXIST + "; is the mod that adds it installed?");
             return null;
         }
         return stem.type();
@@ -164,7 +165,7 @@ public final class MapWorlds {
         for (MapPack pack : archive.dimensions()) {
             for (String block : pack.blockIds()) {
                 if (BuiltInRegistries.BLOCK.getOptional(Identifier.parse(block)).isEmpty()) {
-                    report.error("block " + block + " does not exist");
+                    report.error("block " + block + DOES_NOT_EXIST);
                 }
             }
             for (StructureEntry entry : pack.structures()) {
@@ -180,10 +181,10 @@ public final class MapWorlds {
         String resolved = structure.resolve(exists);
         String at = " (at " + structure.x() + ", " + structure.z() + ")";
         if (resolved == null) {
-            report.warn("structure " + structure.id() + at + " does not exist" + (structure.fallbackId() != null ? ", nor its fallback_id "
+            report.warn("structure " + structure.id() + at + DOES_NOT_EXIST + (structure.fallbackId() != null ? ", nor its fallback_id "
                     + structure.fallbackId() : "") + ": it is skipped");
         } else if (!resolved.equals(structure.id())) {
-            report.warn("structure " + structure.id() + at + " does not exist: its fallback_id " + resolved + " is used");
+            report.warn("structure " + structure.id() + at + DOES_NOT_EXIST + ": its fallback_id " + resolved + " is used");
         }
     }
 

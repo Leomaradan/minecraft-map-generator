@@ -39,6 +39,7 @@ public record MapConfig(
     public static final String FILE_WATER = "water";
     public static final String FILE_LAVA = "lava";
     public static final String FILE_STRUCTURES = "structures";
+    public static final String FILE_DATAPACK = "datapack";
     private static final String KEY_HEIGHT = "height";
     private static final String KEY_MIN_Y = "min_y";
     private static final String KEY_MAX_Y = "max_y";
@@ -464,7 +465,7 @@ public record MapConfig(
             json = new JsonObject();
         }
         String p = "map.json.files";
-        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, "datapack");
+        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, FILE_DATAPACK);
         return new Files(
                 file(json, FILE_HEIGHTMAP, "heightmap.png", report), Json.has(json, FILE_HEIGHTMAP),
                 file(json, FILE_BIOMES, "biomes.png", report), Json.has(json, FILE_BIOMES),
@@ -472,7 +473,7 @@ public record MapConfig(
                 file(json, FILE_WATER, "water.png", report), Json.has(json, FILE_WATER),
                 file(json, FILE_LAVA, "lava.png", report), Json.has(json, FILE_LAVA),
                 file(json, FILE_STRUCTURES, "structures.json", report), Json.has(json, FILE_STRUCTURES),
-                json.has("datapack") && json.get("datapack").isJsonNull() ? "" : normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
+                json.has(FILE_DATAPACK) && json.get(FILE_DATAPACK).isJsonNull() ? "" : normalizeFolder(Json.string(json, FILE_DATAPACK, "datapack/", p, report)));
     }
 
     /** A file path inside the ZIP, with "/" separators and no leading slash; empty for {@code null} (no file). */

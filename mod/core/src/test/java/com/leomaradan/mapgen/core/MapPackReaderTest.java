@@ -188,7 +188,8 @@ class MapPackReaderTest {
         assertEquals(DimensionLayout.NETHER_END, result.pack().layout());
         assertTrue(result.archive().summary().startsWith("minecraft:the_nether, 4x4 px"), result.archive().summary());
         assertTrue(anyContains(result.report().warnings(), "spawn is only used in the overworld"));
-        assertThrows(IllegalArgumentException.class, () -> result.archive().get("minecraft:overworld"));
+        MapArchive nether = result.archive();
+        assertThrows(IllegalArgumentException.class, () -> nether.get("minecraft:overworld"));
 
         this.files.clear();
         MapPackReader.Result mod = put("map.json", "{\"dimension\": \"twilightforest:twilight_forest\"}").put("heightmap.png", heightmap8(4, 4)).read();
