@@ -125,20 +125,24 @@ public final class NoiseCaves {
         int cellsY = Math.floorDiv(highest - minY, CELL_Y) + 1;
         float[][] corners = this.sampleCorners(chunk.getPos(), minY, cellsY, randomState);
 
-        ChunkPos pos = chunk.getPos();
-        BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
-        float[] value = new float[COMPONENTS];
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
-                int top = terrain[dx * 16 + dz];
-                for (int y = minY + 1; y <= top; y++) {
-                    for (int c = 0; c < COMPONENTS; c++) {
-                        value[c] = interpolate(corners[c], cellsY, dx, y - minY, dz);
-                    }
-                    if (density(value, top - y) < 0) {
-                        carveBlock(chunk, blockPos.set(pos.getBlockX(dx), y, pos.getBlockZ(dz)));
-                    }
-                }
+                carveColumn(chunk, corners, cellsY, dx, dz, terrain[dx * 16 + dz]);
+            }
+        }
+    }
+
+    /** Digs the caves of one column of the chunk, up to {@code top}. */
+    private static void carveColumn(ChunkAccess chunk, float[][] corners, int cellsY, int dx, int dz, int top) {
+        int minY = chunk.getMinY();
+        BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos(chunk.getPos().getBlockX(dx), minY, chunk.getPos().getBlockZ(dz));
+        float[] value = new float[COMPONENTS];
+        for (int y = minY + 1; y <= top; y++) {
+            for (int c = 0; c < COMPONENTS; c++) {
+                value[c] = interpolate(corners[c], cellsY, dx, y - minY, dz);
+            }
+            if (density(value, top - y) < 0) {
+                carveBlock(chunk, blockPos.setY(y));
             }
         }
     }
