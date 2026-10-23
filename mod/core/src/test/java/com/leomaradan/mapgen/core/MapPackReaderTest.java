@@ -40,7 +40,10 @@ class MapPackReaderTest {
         Path zip = this.tmp.resolve("test-map.zip");
         try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
             for (Map.Entry<String, byte[]> e : this.files.entrySet()) {
-                out.putNextEntry(new ZipEntry(e.getKey()));
+                ZipEntry entry = new ZipEntry(e.getKey());
+                // Fixed time: the ZIP (and its id) depends only on the content, not on when it was written.
+                entry.setTime(0L);
+                out.putNextEntry(entry);
                 out.write(e.getValue());
                 out.closeEntry();
             }
