@@ -4,6 +4,7 @@ import com.leomaradan.mapgen.core.DimensionLayout;
 import com.leomaradan.mapgen.core.MapConfig;
 import com.leomaradan.mapgen.core.MapPack;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import java.util.List;
@@ -14,11 +15,12 @@ import java.util.Optional;
  * here (world height, feature and structure filters); the terrain data stays in the ZIP.
  *
  * @param pack          id of the map pack, empty when no ZIP was selected yet
+ * @param dimension     id of the dimension of the map in the ZIP; empty for the first map (worlds created before dimensions existed)
  * @param biomeFeatures feature filters of biomes.json entries, by biome (the generator lists each biome's features before the pack is loaded)
  * @param carvers       cave carvers (and canyon carvers when {@code canyons} is absent, as before it existed)
  * @param noiseCaves    noise caves; when absent (worlds created before it existed) they follow {@code carvers}
  */
-public record MapSettings(String pack, String name, int minY, int height, int seaLevel, boolean features, List<String> disabledFeatures,
+public record MapSettings(String pack, String dimension, String name, int minY, int height, int seaLevel, boolean features, List<String> disabledFeatures,
                           List<String> disabledFeatureSteps, Optional<List<String>> onlyFeatures, List<BiomeFeatures> biomeFeatures,
                           boolean carvers, Optional<Boolean> canyons, Optional<Boolean> noiseCaves, boolean vanillaStructures, List<String> disabledStructures,
                           Optional<List<String>> onlyStructures) {
@@ -42,7 +44,8 @@ public record MapSettings(String pack, String name, int minY, int height, int se
         }
     }
 
-    public static final Codec<MapSettings> CODEC = RecordCodecBuilder.create(i -> i.group(
+    /** Every field but {@code dimension} (a record codec takes at most 16 fields). */
+    private static final MapCodec<MapSettings> FIELDS = RecordCodecBuilder.mapCodec(i -> i.group(
             Codec.STRING.optionalFieldOf("pack", "").forGetter(MapSettings::pack),
             Codec.STRING.optionalFieldOf("name", "").forGetter(MapSettings::name),
             Codec.INT.optionalFieldOf("min_y", DimensionLayout.VANILLA_MIN_Y).forGetter(MapSettings::minY),
@@ -59,10 +62,18 @@ public record MapSettings(String pack, String name, int minY, int height, int se
             Codec.BOOL.optionalFieldOf("vanilla_structures", true).forGetter(MapSettings::vanillaStructures),
             Codec.STRING.listOf().optionalFieldOf("disabled_structures", List.of()).forGetter(MapSettings::disabledStructures),
             Codec.STRING.listOf().optionalFieldOf("only_structures").forGetter(MapSettings::onlyStructures)
-    ).apply(i, i.stable(MapSettings::new)));
+    ).apply(i, i.stable((pack, name, minY, height, seaLevel, features, disabledFeatures, disabledFeatureSteps, onlyFeatures, biomeFeatures,
+            carvers, canyons, noiseCaves, vanillaStructures, disabledStructures, onlyStructures) -> new MapSettings(pack, "", name, minY, height,
+            seaLevel, features, disabledFeatures, disabledFeatureSteps, onlyFeatures, biomeFeatures, carvers, canyons, noiseCaves,
+            vanillaStructures, disabledStructures, onlyStructures))));
+
+    public static final Codec<MapSettings> CODEC = RecordCodecBuilder.create(i -> i.group(
+            FIELDS.forGetter(s -> s),
+            Codec.STRING.optionalFieldOf("dimension", "").forGetter(MapSettings::dimension)
+    ).apply(i, i.stable(MapSettings::withDimension)));
 
     /** Settings of a world type selected without a ZIP yet. */
-    public static final MapSettings UNCONFIGURED = new MapSettings("", "", DimensionLayout.VANILLA_MIN_Y, DimensionLayout.VANILLA_HEIGHT, 63,
+    public static final MapSettings UNCONFIGURED = new MapSettings("", "", "", DimensionLayout.VANILLA_MIN_Y, DimensionLayout.VANILLA_HEIGHT, 63,
             true, List.of(), List.of(), Optional.empty(), List.of(), true, Optional.empty(), Optional.empty(), true, List.of(),
             Optional.empty());
 
@@ -75,9 +86,22 @@ public record MapSettings(String pack, String name, int minY, int height, int se
                 .filter(slot -> slot.features() != null)
                 .map(slot -> BiomeFeatures.of(slot.biome(), slot.features()))
                 .toList();
-        return new MapSettings(pack.id(), pack.name(), pack.layout().minY(), pack.layout().height(), config.seaLevel(),
+        return new MapSettings(pack.id(), pack.dimension().id(), pack.name(), pack.layout().minY(), pack.layout().height(), config.seaLevel(),
                 features.enabled(), features.disabled(), features.disabledSteps(), Optional.ofNullable(features.only()), biomeFeatures,
                 carvers.cave(), Optional.of(carvers.canyon()), Optional.of(carvers.noise()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()));
+    }
+
+    private MapSettings withDimension(String dimension) {
+        return new MapSettings(this.pack, dimension, this.name, this.minY, this.height, this.seaLevel, this.features, this.disabledFeatures,
+                this.disabledFeatureSteps, this.onlyFeatures, this.biomeFeatures, this.carvers, this.canyons, this.noiseCaves,
+                this.vanillaStructures, this.disabledStructures, this.onlyStructures);
+    }
+
+    /** The same settings for a dimension of another height (the height of its dimension type). */
+    public MapSettings withLayout(int minY, int height) {
+        return new MapSettings(this.pack, this.dimension, this.name, minY, height, this.seaLevel, this.features, this.disabledFeatures,
+                this.disabledFeatureSteps, this.onlyFeatures, this.biomeFeatures, this.carvers, this.canyons, this.noiseCaves,
+                this.vanillaStructures, this.disabledStructures, this.onlyStructures);
     }
 
     public boolean isConfigured() {

@@ -7,7 +7,8 @@
     "BiomeFilterMixin",
     "BiomeMixin",
     "ChunkGeneratorStructureStateInvoker",
-    "MinecraftServerMixin"
+    "MinecraftServerMixin",
+    "WorldDimensionsMixin"
   ],
   "client": [
     "client.CreateWorldScreenInvoker",
@@ -15,7 +16,6 @@
     "client.WorldCreationUiStateMixin"
   ],
   "server": [
-    "server.DedicatedServerPropertiesMixin",
     "server.MainMixin"
   ],
   "injectors": {

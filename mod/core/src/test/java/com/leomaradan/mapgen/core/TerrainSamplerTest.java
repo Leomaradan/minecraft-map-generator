@@ -32,6 +32,49 @@ class TerrainSamplerTest {
     }
 
     @Test
+    void bottomAndCeiling() throws IOException {
+        MapConfig config = config("{\"origin\": [0, 0]}");
+        GrayRaster height = raster(4, 1, (x, y, c) -> 100);
+        GrayRaster water = raster(4, 1, (x, y, c) -> 120);
+        GrayRaster bottom = raster(4, 1, (x, y, c) -> x == 0 ? 0 : 80);
+        GrayRaster ceiling = raster(4, 1, (x, y, c) -> new int[]{0, 110, 90, 0}[x]);
+        TerrainSampler s = new TerrainSampler(config, height, HeightMapping.resolve(config.height(), 8),
+                new TerrainSampler.Layers(water, null, bottom, ceiling), null, BiomeMapping.EMPTY);
+        TerrainSampler.Column plain = s.sample(0, 0, new TerrainSampler.Column());
+        assertEquals(TerrainSampler.NONE, plain.bottomY);
+        assertEquals(TerrainSampler.NONE, plain.ceilingY);
+        assertEquals(120, plain.fluidTop());
+        // Under a ceiling: water stops just below it.
+        TerrainSampler.Column cave = s.sample(1, 0, new TerrainSampler.Column());
+        assertEquals(80, cave.bottomY);
+        assertEquals(110, cave.ceilingY);
+        assertEquals(100, cave.terrainY);
+        assertEquals(109, cave.fluidTop());
+        // A ceiling below the ground fills the column.
+        TerrainSampler.Column filled = s.sample(2, 0, new TerrainSampler.Column());
+        assertEquals(89, filled.terrainY);
+        assertEquals(TerrainSampler.NONE, filled.fluidTop());
+        // Outside the map: neither.
+        TerrainSampler.Column outside = s.sample(10, 0, cave);
+        assertEquals(TerrainSampler.NONE, outside.bottomY);
+        assertEquals(TerrainSampler.NONE, outside.ceilingY);
+    }
+
+    @Test
+    void zeroIsEmptyWithVoidAndNoBedrock() throws IOException {
+        GrayRaster height = raster(4, 4, (x, y, c) -> x == 0 ? 0 : 100);
+        TerrainSampler floating = sampler("{\"origin\": [0, 0], \"outside\": {\"mode\": \"void\"}, \"blocks\": {\"bedrock\": false}}", height, height, null);
+        TerrainSampler.Column empty = floating.sample(0, 0, new TerrainSampler.Column());
+        assertTrue(empty.inside);
+        assertEquals(TerrainSampler.NONE, empty.terrainY);
+        assertEquals(TerrainSampler.NONE, empty.fluidTop());
+        assertEquals(100, floating.terrainY(1, 0));
+        // With bedrock, or ground around the map, 0 is still the lowest ground.
+        assertEquals(0, sampler("{\"origin\": [0, 0], \"outside\": {\"mode\": \"void\"}}", height, null, null).terrainY(0, 0));
+        assertEquals(0, sampler("{\"origin\": [0, 0], \"blocks\": {\"bedrock\": false}}", height, null, null).terrainY(0, 0));
+    }
+
+    @Test
     void explicitOriginAndFlatOutside() throws IOException {
         TerrainSampler s = sampler("{\"origin\": [100, 200], \"outside\": {\"ground_level\": 10, \"water_level\": 20}}",
                 raster(4, 4, (x, y, c) -> 50 + x + 10 * y), null, null);

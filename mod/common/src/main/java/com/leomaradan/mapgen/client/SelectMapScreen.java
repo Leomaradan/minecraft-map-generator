@@ -1,6 +1,6 @@
 package com.leomaradan.mapgen.client;
 
-import com.leomaradan.mapgen.core.MapPack;
+import com.leomaradan.mapgen.core.MapArchive;
 import com.leomaradan.mapgen.core.MapPackReader;
 import com.leomaradan.mapgen.core.ValidationReport;
 import com.mojang.blaze3d.Blaze3D;
@@ -47,7 +47,7 @@ public final class SelectMapScreen extends Screen {
     private String pendingPath = "";
     private long pendingSince;
     private int validationGeneration;
-    private @Nullable MapPack validPack;
+    private @Nullable MapArchive validPack;
 
     public SelectMapScreen(CreateWorldScreen parent, WorldCreationContext context) {
         super(Component.translatable("mapgen.screen.title"));
@@ -94,7 +94,7 @@ public final class SelectMapScreen extends Screen {
 
         // Responder set last so restoring the previous value triggers a validation.
         this.pathBox.setResponder(this::onPathChanged);
-        MapPack previous = ClientMaps.selected();
+        MapArchive previous = ClientMaps.selected();
         if (previous != null) {
             this.pathBox.setValue(previous.source().toString());
         } else if (zips.size() == 1) {
@@ -174,11 +174,11 @@ public final class SelectMapScreen extends Screen {
     private void showResult(MapPackReader.Result result) {
         ValidationReport report = result.report();
         if (result.ok()) {
-            ClientMaps.validateAgainst(result.pack(), this.context, report);
+            ClientMaps.validateAgainst(result.archive(), this.context, report);
         }
         MutableComponent text = Component.empty();
         if (result.ok() && !report.hasErrors()) {
-            MapPack pack = result.pack();
+            MapArchive pack = result.archive();
             this.validPack = pack;
             text.append(Component.translatable("mapgen.screen.valid", pack.name()).withStyle(ChatFormatting.GREEN)).append("\n")
                     .append(Component.literal(pack.summary()).withStyle(ChatFormatting.GRAY));
@@ -227,7 +227,7 @@ public final class SelectMapScreen extends Screen {
     }
 
     private void apply() {
-        MapPack pack = this.validPack;
+        MapArchive pack = this.validPack;
         if (pack == null) {
             return;
         }

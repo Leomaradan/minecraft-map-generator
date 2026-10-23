@@ -12,9 +12,13 @@ world is built from a predefined map packed in a ZIP file:
   outpost...) at given coordinates,
 * an optional **datapack** (custom biomes, etc.) installed in the world.
 
+A map generates the overworld by default; it can also replace the Nether, the End or a mod's
+dimension, or add a new dimension, and one ZIP can hold a map per dimension.
+
 The format is described in [docs/FORMAT.md](../docs/FORMAT.md). `example/` contains a script that
-builds two sample maps (`example/example.zip`, and `example/example-tall.zip` with 16-bit maps and a
-700-block-high world).
+builds three sample maps: `example/example.zip`, `example/example-tall.zip` (16-bit maps and a
+700-block-high world) and `example/example-dimensions.zip` (the overworld, the Nether and a new
+dimension).
 
 ## Minecraft versions
 

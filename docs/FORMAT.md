@@ -15,13 +15,17 @@ biomes.png          optional  biome map (colors), same size as the heightmap
 biomes.json         optional  color -> biome mapping (required with biomes.png)
 water.png           optional  water surface height, same size and bit depth as the heightmap
 lava.png            optional  lava surface height, same size and bit depth as the heightmap
+bottom.png          optional  lowest ground block of each column (floating islands), same size and bit depth
+ceiling.png         optional  start of a solid ceiling (cave worlds), same size and bit depth
 structures.json     optional  structures to place at given coordinates
 structures/*.nbt    optional  structure templates referenced by structures.json
 datapack/           optional  a regular datapack (pack.mcmeta, data/...) installed in the world
 ```
 
-`mod/example/make_example.py` builds two complete examples (`mod/example/example.zip`,
-`mod/example/example-tall.zip`).
+`mod/example/make_example.py` builds three complete examples (`mod/example/example.zip`,
+`mod/example/example-tall.zip`, and `mod/example/example-dimensions.zip` with three dimensions).
+
+A ZIP can also hold one map per dimension: see [Dimensions](#dimensions).
 
 ## File names
 
@@ -35,6 +39,8 @@ defaults to the name in the list above:
   "biome_mapping": "maps/regions.json",
   "water": "maps/sea.png",
   "lava": "maps/magma.png",
+  "bottom": "maps/underside.png",
+  "ceiling": "maps/roof.png",
   "structures": "structures.json",
   "datapack": "datapack/"
 }
@@ -46,6 +52,9 @@ defaults to the name in the list above:
 * When a file has another name, the default name is ignored: with `"water": "sea.png"`, a
   `water.png` in the ZIP is not read.
 * Paths use `/` (a `\` is accepted and converted); a leading `/` is ignored.
+* `null` means the map has no such file, even if the ZIP has a file with the default name
+  (useful with [several dimensions](#several-dimensions-in-one-zip)): `"water": null`. The
+  heightmap can't be `null`; `"datapack": null` means no datapack.
 
 ## JSON Schemas
 
@@ -83,6 +92,39 @@ y = min_y + v / max_value * (max_y - min_y)  ("height": {"min_y": ..., "max_y": 
 
 When `horizontal_scale` is above 1, heights are interpolated (bilinear) between pixels.
 
+**Empty columns.** With `"outside": {"mode": "void"}` and `"blocks": {"bedrock": false}`, a pixel
+at 0 generates nothing (no ground, no water, no lava), like the void around the map: islands in
+the void, for a sky dimension for example. The other pixels are ground down to the bottom of the
+world, as usual (or down to the [bottom map](#floating-islands-and-caves)). Otherwise 0 is a
+normal height.
+
+## Floating islands and caves
+
+Two optional maps, with the same size, bit depth and height mapping as the heightmap, shape the
+ground from below and add a roof. In both, a pixel at 0 means "none" for that column.
+
+* **`bottom.png`**: the Y of the lowest ground block. The ground goes from there up to the
+  heightmap, with nothing below: floating islands. Without it (or at 0), the ground goes down to
+  the bottom of the world. Bedrock is only placed when the ground reaches the bottom of the world.
+* **`ceiling.png`**: the Y where a solid ceiling starts, up to the top of the world: cave worlds,
+  like the Nether. The ground, water and lava stay under the ceiling (a ceiling at the ground or
+  below fills the column). The ceiling is made of `blocks.ceiling` (`blocks.default` by default),
+  with bedrock on the top layer of the world when `blocks.bedrock` is on. Structures placed by the
+  map use the floor under the ceiling; surface features (trees, grass...) look for the top of the
+  world, so like in the Nether few of them grow under a ceiling. Underground features (ores, cave
+  vegetation of cave biomes) are not affected.
+
+```json
+"files": { "bottom": "islands/underside.png" },
+"outside": { "mode": "void" },
+"blocks": { "bedrock": false }
+```
+
+For a cave world, give the new dimension a type without sky light, for example
+`"parameters": {"type": {"has_skylight": false, "has_ceiling": true}}` (see
+[Dimensions](#dimensions)). `mod/example/example-dimensions.zip` has a floating island
+(`mapgen:sky`) and a cave world (`mapgen:caves`).
+
 ## World height
 
 The world is tall enough for the map: by default its bottom is at least 16 blocks below the
@@ -93,6 +135,77 @@ to 2031, at most 4064 blocks tall; terrain outside the limits is cut (with a war
 
 You can also set the height yourself: `"dimension_parameter": {"min_y": -64, "height": 1024}` (or
 `"max_y"` instead of `"height"`); both must be multiples of 16.
+
+In the Nether and the End, the vanilla height is Y 0 to 255 instead of -64 to 319. For a mod's
+dimension, or a new dimension using an existing dimension type, the height is the dimension
+type's: terrain outside it is cut (with a warning). See [Dimensions](#dimensions).
+
+## Dimensions
+
+By default a map generates the overworld. `dimension` in `map.json` chooses another dimension:
+
+```json
+"dimension": "minecraft:the_nether"
+```
+
+* **A dimension id** (`minecraft:overworld`, `minecraft:the_nether`, `minecraft:the_end`, or a
+  dimension added by a mod, like `twilightforest:twilight_forest`): the map replaces the
+  generator of that dimension. The dimension keeps its look (sky, fog, light, ceiling...).
+  * The overworld, the Nether and the End are resized to the map, like the overworld (see
+    [World height](#world-height)).
+  * A mod's dimension keeps its height. The mod must be installed when the world is created.
+* **A new dimension**: `{"name": ..., "parameters": ...}`.
+
+  ```json
+  "dimension": {
+    "name": "Sky Islands",
+    "parameters": { "type": { "ambient_light": 0.2, "has_skylight": true } }
+  }
+  ```
+
+  * `name` is the dimension id. A name without a namespace becomes `mapgen:<name>` in lower
+    case, other characters replaced by `_` (`Sky Islands` → `mapgen:sky_islands`). It can't be an
+    existing dimension; use the id form to replace one.
+  * `parameters` is a [dimension definition](https://minecraft.wiki/w/Dimension_definition)
+    without `generator` (the map is the generator). Its `type` is:
+    * a dimension type id (`"type": "minecraft:the_nether"`): the dimension uses that type as is,
+      height included;
+    * an inline dimension type (an object): its fields replace those of the overworld type,
+      and the height is the map's unless the object sets `min_y`, `height` and
+      `logical_height`;
+    * absent: the dimension is like the overworld, sized to the map.
+  * To go to a new dimension, use `/execute in mapgen:sky_islands run tp @s 0 200 0`, or a
+    mod or datapack that adds portals.
+
+A dimension that no map generates is vanilla: a map of the Nether alone keeps a normal overworld.
+`spawn` and the world border (`outside.border`) are only used by the overworld's map.
+
+### Several dimensions in one ZIP
+
+`map.json` can list one map per dimension:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Leomaradan/minecraft-map-generator/main/docs/schemas/map.schema.json",
+  "dimensions": [
+    { "name": "My World", "dimension": "minecraft:overworld" },
+    {
+      "dimension": "minecraft:the_nether",
+      "files": { "heightmap": "nether/heightmap.png", "lava": "nether/lava.png", "water": null, "biomes": null, "structures": null }
+    },
+    { "dimension": { "name": "sky" }, "files": { "heightmap": "sky/heightmap.png", "water": null, "lava": null, "biomes": null, "structures": null } }
+  ]
+}
+```
+
+* Each element of `dimensions` is a complete `map.json` (without `$schema`), and its `dimension`
+  key is required. Only `$schema` and `dimensions` are allowed next to it.
+* Two maps can't generate the same dimension.
+* Every map reads its files under the default names unless `files` names them: give each map
+  its own files, and `null` for the files it doesn't have (else it would read another map's
+  `water.png`, `biomes.png`...). Maps can share files, such as a heightmap or `biomes.json`.
+* The datapacks of all maps (`files.datapack`) are installed in the world.
+* The world's name in the UI is the `name` of the first map.
 
 ## Water and lava maps
 
@@ -353,17 +466,19 @@ Every field is optional. Unknown keys produce a warning.
 | `horizontal_scale` | `1` | Blocks per pixel (`2` makes a 1024 px map 2048 blocks wide). |
 | `height` | see above | Value-to-Y mapping, `{base_y, scale}` or `{min_y, max_y}`. |
 | `files` | default names | Paths of the other files in the ZIP. See [File names](#file-names). |
+| `dimension` | `minecraft:overworld` | Dimension the map generates: a dimension id, or `{"name", "parameters"}` for a new dimension. See [Dimensions](#dimensions). |
 | `dimension_parameter` | automatic | World bottom and height (multiples of 16). |
 | `sea_level` | `63` | Minecraft's sea level (mob spawning, some features). It does **not** add water; use the water map. |
 | `biome_transition` | `4` | Biome borders are shifted by up to this many blocks (0 to 64) so they look natural; `0` keeps pixel borders. See [Biome transitions](#biome-transitions). |
-| `outside.mode` | `flat` | Around the map: `flat` (ground at `ground_level`, water up to `water_level`), `void` (nothing), `extend` (border pixels extended). |
+| `outside.mode` | `flat` | Around the map: `flat` (ground at `ground_level`, water up to `water_level`), `void` (nothing), `extend` (border pixels extended). With `void` and no bedrock, heightmap pixels at 0 are empty too (see [Heightmap](#heightmap)). |
 | `outside.ground_level` | `64` | Ground Y around the map (`flat`). |
 | `outside.water_level` | `63` | Water surface around the map, if above the ground (`flat`). |
 | `outside.biome` | `minecraft:plains` | Biome around the map (and everywhere without a biome map). |
 | `outside.border` | `true` | Puts a world border around the map when the world is created, so players can't leave it. The border is a square: it fits the longest side of the map, centered on it, so a non-square map has some outside terrain on its short sides. Without a `spawn`, a spawn that vanilla picked outside the border moves to the center of the map. Change it later with `/worldborder`. |
 | `spawn` | vanilla | World spawn. Without `y`, the spawn is on the surface. |
 | `blocks.default` | `minecraft:stone` | Blocks under the surface layers: a block id or a [block list](#block-lists). |
-| `blocks.bedrock` | `true` | Bedrock at the bottom of the world. |
+| `blocks.bedrock` | `true` | Bedrock at the bottom of the world (and at the top above a ceiling). |
+| `blocks.ceiling` | `blocks.default` | Blocks of the ceiling (`ceiling.png`). See [Floating islands and caves](#floating-islands-and-caves). |
 | `snow` | `true` | Where snow layers and ice may form: `true`, `false` or `{min_y, max_y}`. See [Snow](#snow). |
 | `decoration.features` | `true` | Biome features: trees, grass, flowers, ores, lakes, etc. `true`, `false`, or a filter (below). An entry of `biomes.json` can override it. |
 | `decoration.features.enabled` | `true` | `false` turns every feature off. |
