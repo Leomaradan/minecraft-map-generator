@@ -7,6 +7,7 @@ import com.leomaradan.mapgen.core.MapConfig;
 import com.leomaradan.mapgen.core.MapPack;
 import com.leomaradan.mapgen.core.StructureEntry;
 import com.leomaradan.mapgen.core.TerrainSampler;
+import com.leomaradan.mapgen.mixin.CaveCarverConfigurationAccessor;
 import com.leomaradan.mapgen.mixin.ChunkGeneratorStructureStateInvoker;
 import com.leomaradan.mapgen.pack.MapPacks;
 import com.mojang.datafixers.util.Pair;
@@ -25,7 +26,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.tags.BiomeTags;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -38,7 +38,6 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.Biomes;
-import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -48,22 +47,31 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.Aquifer;
 import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
+import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
+import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
+import net.minecraft.world.level.levelgen.NoiseSettings;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.RandomSupport;
-import net.minecraft.world.level.levelgen.WorldGenerationContext;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.levelgen.carver.CanyonCarverConfiguration;
 import net.minecraft.world.level.levelgen.carver.CanyonWorldCarver;
+import net.minecraft.world.level.levelgen.carver.CarverConfiguration;
+import net.minecraft.world.level.levelgen.carver.CaveCarverConfiguration;
+import net.minecraft.world.level.levelgen.carver.CarvingContext;
+import net.minecraft.world.level.levelgen.carver.ConfiguredWorldCarver;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
-import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureSet;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
+import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import org.jspecify.annotations.Nullable;
 
@@ -100,6 +108,10 @@ public final class MapChunkGenerator extends ChunkGenerator {
     private volatile Loaded loaded;
     /** Vanilla's cave functions, built once the server's registries are known. */
     private final AtomicReference<@Nullable NoiseCaves> noiseCaves = new AtomicReference<>();
+    /** A noise generator with this world's height, only for the CarvingContext of the carvers. */
+    private final AtomicReference<@Nullable NoiseBasedChunkGenerator> carvingGenerator = new AtomicReference<>();
+    /** The biomes' carvers changed to only mark the carving mask (empty when the configuration is not a vanilla one). */
+    private static final Map<ConfiguredWorldCarver<?>, Optional<ConfiguredWorldCarver<?>>> MASK_ONLY_CARVERS = Collections.synchronizedMap(new IdentityHashMap<>());
 
     /**
      * Pack data resolved on first use (the pack is only available once the server runs). The
@@ -171,7 +183,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     /** @param allows tests a feature id and its generation step */
     static BiomeGenerationSettings filtered(BiomeGenerationSettings settings, BiPredicate<String, String> allows) {
         BiomeGenerationSettings.PlainBuilder builder = new BiomeGenerationSettings.PlainBuilder();
-        for (Holder<WorldCarver> carver : settings.getCarvers()) {
+        for (Holder<ConfiguredWorldCarver<?>> carver : settings.getCarvers()) {
             builder.addCarver(carver);
         }
         GenerationStep.Decoration[] steps = GenerationStep.Decoration.values();
@@ -382,9 +394,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     @Override
-    public CompletableFuture<ChunkAccess> buildTerrain(ChunkAccess chunk, Blender blender, RandomState randomState, StructureManager structureManager,
-                                                       BiomeManager biomeManager, @Nullable WorldGenRegion carverBiomeRegion,
-                                                       Set<Holder<Biome>> possibleBiomes) {
+    public CompletableFuture<ChunkAccess> fillFromNoise(Blender blender, RandomState randomState, StructureManager structureManager, ChunkAccess chunk) {
         Loaded l = this.loaded();
         this.fillTerrain(l, chunk);
         if (l != null && l.carvers.stream().anyMatch(MapConfig.Carvers::noise)) {
@@ -393,10 +403,21 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 caves.carve(chunk, randomState, new ChunkColumns(l, chunk.getPos()));
             }
         }
-        if (l != null ? l.carvers.stream().anyMatch(c -> c.cave() || c.canyon()) : this.settings.carverFilter().any()) {
-            this.carve(l, chunk, randomState);
-        }
         return CompletableFuture.completedFuture(chunk);
+    }
+
+    @Override
+    public void buildSurface(WorldGenRegion region, StructureManager structureManager, RandomState randomState, ChunkAccess chunk) {
+        // The surface blocks are placed with the terrain, in fillFromNoise.
+    }
+
+    @Override
+    public void applyCarvers(WorldGenRegion region, long seed, RandomState randomState, BiomeManager biomeManager, StructureManager structureManager,
+                             ChunkAccess chunk) {
+        Loaded l = this.loaded();
+        if (l != null ? l.carvers.stream().anyMatch(c -> c.cave() || c.canyon()) : this.settings.carverFilter().any()) {
+            this.carve(l, chunk, region.registryAccess(), randomState, seed);
+        }
     }
 
     private @Nullable NoiseCaves noiseCaves() {
@@ -507,63 +528,137 @@ public final class MapChunkGenerator extends ChunkGenerator {
     /**
      * Runs the biomes' carvers (caves, ravines) the way the noise generator does, without
      * breaking into the water and lava placed by the map.
+     * <p>
+     * Before 26.3 the carvers write the blocks themselves. Here they run with nothing they may
+     * replace, so they only mark the carving mask (as they do in 26.3), and
+     * {@link #applyCarvingMask} writes the blocks.
      */
-    private void carve(@Nullable Loaded l, ChunkAccess chunk, RandomState randomState) {
+    private void carve(@Nullable Loaded l, ChunkAccess chunk, RegistryAccess registryAccess, RandomState randomState, long seed) {
         ChunkPos pos = chunk.getPos();
-        WorldGenerationContext context = new WorldGenerationContext(this, chunk.getHeightAccessorForGeneration());
+        LevelHeightAccessor heightAccessor = chunk.getHeightAccessorForGeneration();
+        CarvingContext context = new CarvingContext(this.carvingGenerator(), registryAccess, heightAccessor, null, randomState, null);
+        int minY = context.getMinGenY() + 1;
         int maxY = context.getMinGenY() + context.getGenDepth() - 1 - 7;
-        CarvingMask mask = new CarvingMask(context.getMinGenY() + 1, maxY);
+        CarvingMask mask = new CarvingMask(chunk.getHeight(), chunk.getMinY());
+        // Never asked: the carvers don't replace any block.
+        Aquifer aquifer = Aquifer.createDisabled((x, y, z) -> new Aquifer.FluidStatus(chunk.getMinY(), Blocks.AIR.defaultBlockState()));
+        Function<BlockPos, Holder<Biome>> biomes = p -> this.mapBiomes.biomeAt(p.getX(), p.getY(), p.getZ());
         WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(RandomSupport.generateUniqueSeed()));
+        CarverRun run = new CarverRun(chunk, context, biomes, aquifer, random, seed, mask);
         int range = 8;
+        boolean carved = false;
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
-                this.carveFrom(l, new ChunkPos(pos.x() + dx, pos.z() + dz), pos, context, random, randomState, mask);
+                carved |= this.carveFrom(l, new ChunkPos(pos.x() + dx, pos.z() + dz), run);
             }
         }
-        if (!mask.isEmpty()) {
-            applyCarvingMask(chunk, mask);
+        if (carved) {
+            applyCarvingMask(chunk, mask, minY, maxY);
         }
     }
 
-    /** Runs the carvers of the biome of {@code sourcePos} (where caves start) allowed by its carver rule. */
-    private void carveFrom(@Nullable Loaded l, ChunkPos sourcePos, ChunkPos pos, WorldGenerationContext context, WorldgenRandom random,
-                           RandomState randomState, CarvingMask mask) {
+    /** What every carver of a chunk is run with. */
+    private record CarverRun(ChunkAccess chunk, CarvingContext context, Function<BlockPos, Holder<Biome>> biomes, Aquifer aquifer, WorldgenRandom random,
+                             long seed, CarvingMask mask) {
+    }
+
+    /**
+     * Runs the carvers of the biome of {@code sourcePos} (where caves start) allowed by its carver
+     * rule. Returns whether a carver ran.
+     */
+    private boolean carveFrom(@Nullable Loaded l, ChunkPos sourcePos, CarverRun run) {
         int x = sourcePos.getMinBlockX();
         int z = sourcePos.getMinBlockZ();
         MapConfig.Carvers rule = l != null ? l.carvers.get(l.index(l.sampler.biomeIndex(x, z))) : this.settings.carverFilter();
         int index = 0;
-        for (Holder<WorldCarver> carverHolder : this.mapBiomes.biomeAt(x, z).value().getGenerationSettings().getCarvers()) {
-            WorldCarver carver = carverHolder.value();
+        boolean ran = false;
+        for (Holder<ConfiguredWorldCarver<?>> carverHolder : this.mapBiomes.biomeAt(x, z).value().getGenerationSettings().getCarvers()) {
+            ConfiguredWorldCarver<?> carver = carverHolder.value();
             // The seed depends on the index of the carver: skipped carvers still count.
-            random.setLargeFeatureSeed(randomState.seed() + index, sourcePos.x(), sourcePos.z());
-            if ((carver instanceof CanyonWorldCarver ? rule.canyon() : rule.cave()) && carver.isStartChunk(random)) {
-                carver.carve(context, random, pos, sourcePos, mask);
+            run.random().setLargeFeatureSeed(run.seed() + index, sourcePos.x(), sourcePos.z());
+            Optional<ConfiguredWorldCarver<?>> maskOnly = maskOnly(carver);
+            if (maskOnly.isPresent() && (carver.worldCarver() instanceof CanyonWorldCarver ? rule.canyon() : rule.cave())
+                    && maskOnly.get().isStartChunk(run.random())) {
+                maskOnly.get().carve(run.context(), run.chunk(), run.biomes(), run.random(), run.aquifer(), sourcePos, run.mask());
+                ran = true;
             }
             index++;
         }
+        return ran;
+    }
+
+    /**
+     * The carver with an empty list of replaceable blocks: it marks the mask without touching the
+     * chunk. Empty for a configuration type other than vanilla's cave and canyon ones (the carver is
+     * skipped).
+     */
+    private static Optional<ConfiguredWorldCarver<?>> maskOnly(ConfiguredWorldCarver<?> carver) {
+        return MASK_ONLY_CARVERS.computeIfAbsent(carver, c -> {
+            CarverConfiguration config = c.config();
+            CarverConfiguration base = new CarverConfiguration(config.probability, config.y, config.yScale, config.lavaLevel, config.debugSettings,
+                    HolderSet.empty());
+            if (config.getClass() == CaveCarverConfiguration.class) {
+                CaveCarverConfiguration cave = (CaveCarverConfiguration) config;
+                return Optional.of(withConfig(c, new CaveCarverConfiguration(base, cave.horizontalRadiusMultiplier, cave.verticalRadiusMultiplier,
+                        ((CaveCarverConfigurationAccessor) cave).mapgen$floorLevel())));
+            }
+            if (config.getClass() == CanyonCarverConfiguration.class) {
+                CanyonCarverConfiguration canyon = (CanyonCarverConfiguration) config;
+                return Optional.of(withConfig(c, new CanyonCarverConfiguration(base, canyon.verticalRotation, canyon.shape)));
+            }
+            MapGen.LOG.warn("Carver {} has an unsupported configuration ({}): skipped", c.worldCarver(), config.getClass().getName());
+            return Optional.empty();
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <C extends CarverConfiguration> ConfiguredWorldCarver<?> withConfig(ConfiguredWorldCarver<?> carver, CarverConfiguration config) {
+        return new ConfiguredWorldCarver<>((WorldCarver<C>) carver.worldCarver(), (C) config);
+    }
+
+    /**
+     * CarvingContext needs a noise generator, but only reads its minimum Y and depth: one with this
+     * world's height, built once.
+     */
+    private NoiseBasedChunkGenerator carvingGenerator() {
+        NoiseBasedChunkGenerator generator = this.carvingGenerator.get();
+        if (generator == null) {
+            NoiseGeneratorSettings d = NoiseGeneratorSettings.dummy();
+            NoiseGeneratorSettings noiseSettings = new NoiseGeneratorSettings(NoiseSettings.create(this.getMinY(), this.getGenDepth(), 1, 2), d.defaultBlock(),
+                    d.defaultFluid(), d.noiseRouter(), d.surfaceRule(), d.spawnTarget(), d.seaLevel(), d.disableMobGeneration(), d.aquifersEnabled(),
+                    d.oreVeinsEnabled(), d.useLegacyRandomSource());
+            generator = new NoiseBasedChunkGenerator(this.biomeSource, Holder.direct(noiseSettings));
+            this.carvingGenerator.set(generator);
+        }
+        return generator;
     }
 
     /** Turns the carved blocks into cave air (lava near the bottom), except next to the map's fluids. */
-    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask) {
+    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask, int minY, int maxY) {
         ChunkPos pos = chunk.getPos();
         int lavaLevel = chunk.getMinY() + 8;
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
         BlockPos.MutableBlockPos neighbor = new BlockPos.MutableBlockPos();
-        mask.visit((x, z, bottomY, topY) -> {
-            int worldX = pos.getBlockX(x);
-            int worldZ = pos.getBlockZ(z);
-            for (int y = topY; y >= bottomY; y--) {
-                blockPos.set(worldX, y, worldZ);
-                BlockState state = chunk.getBlockState(blockPos);
-                if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty()) {
-                    continue;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int worldX = pos.getBlockX(x);
+                int worldZ = pos.getBlockZ(z);
+                for (int y = maxY; y >= minY; y--) {
+                    if (mask.get(x, y, z)) {
+                        carveMaskedBlock(chunk, blockPos.set(worldX, y, worldZ), neighbor, lavaLevel);
+                    }
                 }
-                if (touchesFluid(chunk, blockPos, neighbor)) {
-                    continue;
-                }
-                chunk.setBlockState(blockPos, y <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
             }
-        });
+        }
+    }
+
+    /** Carves one block of the mask, unless it is air, bedrock (26.3's uncarvable tag), a fluid or next to a fluid. */
+    private static void carveMaskedBlock(ChunkAccess chunk, BlockPos pos, BlockPos.MutableBlockPos neighbor, int lavaLevel) {
+        BlockState state = chunk.getBlockState(pos);
+        if (state.isAir() || state.is(Blocks.BEDROCK) || !state.getFluidState().isEmpty() || touchesFluid(chunk, pos, neighbor)) {
+            return;
+        }
+        chunk.setBlockState(pos, pos.getY() <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
     }
 
     /** True if a block above or beside (within the chunk) is a fluid: carving there would drain lakes. */
@@ -616,7 +711,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
     }
 
     @Override
-    public void addDebugScreenInfo(List<String> result, RandomState randomState, BlockPos feetPos, SamplerContext samplerContext) {
+    public void addDebugScreenInfo(List<String> result, RandomState randomState, BlockPos feetPos) {
         Loaded l = this.loaded();
         if (l == null) {
             result.add("MapGen: no map selected");
@@ -633,7 +728,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
         ChunkPos center = region.getCenter();
         WorldgenRandom random = new WorldgenRandom(new LegacyRandomSource(RandomSupport.generateUniqueSeed()));
         random.setDecorationSeed(region.getSeed(), center.getMinBlockX(), center.getMinBlockZ());
-        NaturalSpawner.spawnMobsForChunkGeneration(region, center.getWorldPosition().atY(region.getMaxY()), center, random);
+        Holder<Biome> biome = region.getBiome(center.getWorldPosition().atY(region.getMaxY()));
+        NaturalSpawner.spawnMobsForChunkGeneration(region, biome, center, random);
     }
 
     @Override
@@ -679,8 +775,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 }
             });
         }
-        return ChunkGeneratorStructureStateInvoker.mapgen$create(randomState, this.biomeSource, levelSeed, this.getOrigin(randomState), levelSeed,
-                List.copyOf(sets));
+        return ChunkGeneratorStructureStateInvoker.mapgen$create(randomState, this.biomeSource, levelSeed, levelSeed, List.copyOf(sets));
     }
 
     private boolean hasBiomes(StructureSet set) {
@@ -706,7 +801,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
                 continue;
             }
             Structure structure = holder.get().value();
-            StructureStart existing = structureManager.getStartForStructure(structure, centerChunk);
+            StructureStart existing = structureManager.getStartForStructure(SectionPos.bottomOf(centerChunk), structure, centerChunk);
             if (existing != null && existing.isValid()) {
                 continue;
             }
@@ -714,7 +809,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
                     centerChunk);
             if (start.isValid()) {
                 // Stored in the entry's chunk even when generated from a neighbor: references follow the pieces' bounds.
-                structureManager.setStartForStructure(structure, start, centerChunk);
+                structureManager.setStartForStructure(SectionPos.bottomOf(centerChunk), structure, start, centerChunk);
             }
         }
     }
@@ -729,13 +824,11 @@ public final class MapChunkGenerator extends ChunkGenerator {
                                                ChunkAccess centerChunk) {
         ChunkPos chunkPos = centerChunk.getPos();
         ChunkGeneratorStructureState state = context.state();
-        Climate.Sampler climate = state.randomState().createClimateSampler(SamplerContext.builder().enableCaches().build());
         List<StructureAttempt> attempts = StructureAttempt.list(entry.retries());
         for (int i = 0; i < attempts.size(); i++) {
             StructureAttempt attempt = attempts.get(i);
             ChunkPos source = new ChunkPos(chunkPos.x() + attempt.dx(), chunkPos.z() + attempt.dz());
-            StructureStart start = holder.value().generate(holder, context.level(), context.registryAccess(), this, this.biomeSource, climate,
-                    state.randomState(), context.templateManager(), state.getLevelSeed() + attempt.seedOffset(), source, 0, centerChunk, biome -> true);
+            StructureStart start = holder.value().generate(holder, context.level(), context.registryAccess(), this, this.biomeSource, state.randomState(), context.templateManager(), state.getLevelSeed() + attempt.seedOffset(), source, 0, centerChunk, biome -> true);
             if (start.isValid()) {
                 if (i > 0) {
                     MapGen.LOG.info("[{}] Structure {} at {}, {} generated on retry {} (moved by {}, {} chunks)", l.pack.name(), entry.id(),
@@ -803,8 +896,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
     @Override
     public @Nullable Pair<BlockPos, Holder<Structure>> findNearestMapStructure(ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos,
                                                                                 int maxSearchRadius, boolean createReference) {
-        Pair<BlockPos, Holder<Structure>> nearest = super.findNearestMapStructure(level, wantedStructures, pos, maxSearchRadius, createReference);
         Loaded l = this.loaded();
+        int radius = vanillaSearchRadius(l, level, wantedStructures, pos, maxSearchRadius);
+        Pair<BlockPos, Holder<Structure>> nearest = super.findNearestMapStructure(level, wantedStructures, pos, radius, createReference);
         if (l == null || !level.getServer().getWorldGenSettings().options().generateStructures()) {
             return nearest;
         }
@@ -827,6 +921,34 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         return nearest;
+    }
+
+    /**
+     * Vanilla's search radius (in rings of the placement's spacing), limited to the map and a margin
+     * of one map size around it. Before 26.3, vanilla reads the region file of every candidate chunk
+     * (creating it when missing): around a map where no candidate is valid, such as an ocean outside,
+     * the full search blocks the server and leaves thousands of empty region files.
+     */
+    private static int vanillaSearchRadius(@Nullable Loaded l, ServerLevel level, HolderSet<Structure> wantedStructures, BlockPos pos,
+                                           int maxSearchRadius) {
+        if (l == null) {
+            return maxSearchRadius;
+        }
+        TerrainSampler s = l.sampler;
+        int margin = Math.max(s.endX() - s.originX(), s.endZ() - s.originZ());
+        int dx = Math.max(Math.abs(pos.getX() - s.originX()), Math.abs(pos.getX() - s.endX()));
+        int dz = Math.max(Math.abs(pos.getZ() - s.originZ()), Math.abs(pos.getZ() - s.endZ()));
+        int chunks = SectionPos.blockToSectionCoord(Math.max(dx, dz) + margin) + 1;
+        int spacing = Integer.MAX_VALUE;
+        ChunkGeneratorStructureState state = level.getChunkSource().getGeneratorState();
+        for (Holder<Structure> structure : wantedStructures) {
+            for (StructurePlacement placement : state.getPlacementsForStructure(structure)) {
+                if (placement instanceof RandomSpreadStructurePlacement spread) {
+                    spacing = Math.min(spacing, spread.spacing());
+                }
+            }
+        }
+        return spacing == Integer.MAX_VALUE ? maxSearchRadius : Math.min(maxSearchRadius, Math.ceilDiv(chunks, spacing));
     }
 
     @Override

@@ -31,6 +31,19 @@ plugins {
 rootProject.name = 'minecraft-map-generator'
 includeBuild('build-logic')
 
+// Minecraft version to build: ./gradlew build -Pmc=26.1 (26.2 by default). Its Minecraft and loader
+// versions come from versions/<mc>.properties and are set on every project like gradle.properties.
+def mc = providers.gradleProperty('mc').getOrElse('26.2')
+def versionFile = file("versions/${mc}.properties")
+if (!versionFile.exists()) {
+    throw new GradleException("Unsupported Minecraft version ${mc}: no ${versionFile.name} in versions/")
+}
+def versionProps = new Properties()
+versionFile.withInputStream { versionProps.load(it) }
+gradle.beforeProject { project ->
+    versionProps.each { key, value -> project.ext.set(key, value) }
+}
+
 // Minecraft-independent code (map pack parsing, validation, terrain sampling). Builds and tests
 // without any Minecraft download: ./gradlew -PcoreOnly :core:test
 include('core')

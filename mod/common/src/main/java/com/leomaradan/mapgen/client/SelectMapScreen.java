@@ -3,7 +3,6 @@ package com.leomaradan.mapgen.client;
 import com.leomaradan.mapgen.core.MapArchive;
 import com.leomaradan.mapgen.core.MapPackReader;
 import com.leomaradan.mapgen.core.ValidationReport;
-import com.mojang.blaze3d.Blaze3D;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -109,7 +108,7 @@ public final class SelectMapScreen extends Screen {
 
     @Override
     public void onClose() {
-        this.minecraft.gui.setScreen(this.parent);
+        ClientCompat.setScreen(this.minecraft, this.parent);
     }
 
     @Override
@@ -223,7 +222,7 @@ public final class SelectMapScreen extends Screen {
             this.setStatus(Component.literal(e.getMessage()).withStyle(ChatFormatting.RED));
             return;
         }
-        Blaze3D.openPath(folder);
+        Util.getPlatform().openPath(folder);
     }
 
     private void apply() {
@@ -231,7 +230,7 @@ public final class SelectMapScreen extends Screen {
         if (pack == null) {
             return;
         }
-        this.minecraft.gui.setScreen(this.parent);
+        ClientCompat.setScreen(this.minecraft, this.parent);
         ClientMaps.apply(this.parent, pack);
     }
 

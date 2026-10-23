@@ -1,5 +1,6 @@
 package com.leomaradan.mapgen.mixin.client;
 
+import com.leomaradan.mapgen.client.ClientCompat;
 import com.leomaradan.mapgen.client.ClientMaps;
 import com.leomaradan.mapgen.client.SelectMapScreen;
 import net.minecraft.client.Minecraft;
@@ -30,9 +31,9 @@ public abstract class CreateWorldScreenMixin {
         if (ClientMaps.needsSelection(state)) {
             ci.cancel();
             Minecraft minecraft = Minecraft.getInstance();
-            SystemToast.add(minecraft.gui.toastManager(), SystemToast.SystemToastId.PACK_LOAD_FAILURE, Component.translatable("mapgen.error.title"),
+            SystemToast.add(ClientCompat.toastManager(minecraft), SystemToast.SystemToastId.PACK_LOAD_FAILURE, Component.translatable("mapgen.error.title"),
                     Component.translatable("mapgen.error.no_map"));
-            minecraft.gui.setScreen(new SelectMapScreen(screen, state.getSettings()));
+            ClientCompat.setScreen(minecraft, new SelectMapScreen(screen, state.getSettings()));
         }
     }
 }

@@ -1,12 +1,12 @@
 name: Minecraft mod
 
-# Builds the mod on every change under mod/ and publishes one artifact per mod loader,
-# each containing only the mod jar (no sources or javadoc jars).
+# Builds the mod for Minecraft 26.1 and 26.2 on every change under mod/ and publishes one artifact
+# per Minecraft version and mod loader, each containing only the mod jar (no sources or javadoc jars).
 
 on:
   push:
     branches:
-      - main
+      - mc/26.1-26.2
     paths:
       - 'mod/**'
       - '.github/workflows/mod.yml'
@@ -27,6 +27,10 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Each version has its loader versions in mod/versions/<mc>.properties.
+        mc: ['26.1', '26.2']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,12 +54,12 @@ jobs:
         run: echo "mod_id=$(sed -n 's/^mod_id=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
-        run: ./gradlew build
+        run: ./gradlew build -Pmc=${{ matrix.mc }}
 
       - name: Upload Fabric jar
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.mod.outputs.mod_id }}-fabric
+          name: ${{ steps.mod.outputs.mod_id }}-fabric-${{ matrix.mc }}
           path: |
             mod/fabric/build/libs/*.jar
             !mod/fabric/build/libs/*-sources.jar
@@ -65,7 +69,7 @@ jobs:
       - name: Upload NeoForge jar
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.mod.outputs.mod_id }}-neoforge
+          name: ${{ steps.mod.outputs.mod_id }}-neoforge-${{ matrix.mc }}
           path: |
             mod/neoforge/build/libs/*.jar
             !mod/neoforge/build/libs/*-sources.jar

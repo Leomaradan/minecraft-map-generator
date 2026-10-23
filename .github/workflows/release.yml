@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a v* tag builds the mod and creates a GitHub release with the Fabric and NeoForge
-# mod jars (no sources or javadoc jars) and the example map ZIPs.
+# Pushing a v* tag on the mc/26.1-26.2 branch (for example v0.2.0-mc26.1-26.2) builds the mod for
+# Minecraft 26.1 and 26.2 and creates a GitHub release with the Fabric and NeoForge mod jars of both
+# versions (no sources or javadoc jars) and the example map ZIPs.
 
 on:
   push:
@@ -36,8 +37,12 @@ jobs:
         with:
           build-root-directory: mod
 
-      - name: Build and test
-        run: ./gradlew build
+      # Both builds write to the same build/libs folders: jar names include the Minecraft version.
+      - name: Build and test (26.1)
+        run: ./gradlew build -Pmc=26.1
+
+      - name: Build and test (26.2)
+        run: ./gradlew build -Pmc=26.2
 
       - name: Create the release
         env:

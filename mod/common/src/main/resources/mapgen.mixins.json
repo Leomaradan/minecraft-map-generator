@@ -6,6 +6,7 @@
   "mixins": [
     "BiomeFilterMixin",
     "BiomeMixin",
+    "CaveCarverConfigurationAccessor",
     "ChunkGeneratorStructureStateInvoker",
     "MinecraftServerMixin",
     "WorldDimensionsMixin"
