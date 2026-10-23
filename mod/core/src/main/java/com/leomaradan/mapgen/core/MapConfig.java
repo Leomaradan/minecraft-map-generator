@@ -30,6 +30,15 @@ public record MapConfig(
         VanillaStructures vanillaStructures
 ) {
     public static final int CURRENT_FORMAT = 1;
+
+    /** Keys of {@code files} in map.json. */
+    public static final String FILE_HEIGHTMAP = "heightmap";
+    public static final String FILE_BIOMES = "biomes";
+    public static final String FILE_BIOME_MAPPING = "biome_mapping";
+    public static final String FILE_WATER = "water";
+    public static final String FILE_LAVA = "lava";
+    public static final String FILE_STRUCTURES = "structures";
+    private static final String KEY_HEIGHT = "height";
     /** Default {@code biome_transition}: biome borders are shifted by up to this many blocks. */
     public static final int DEFAULT_BIOME_TRANSITION = 4;
     public static final int MAX_BIOME_TRANSITION = 64;
@@ -239,7 +248,7 @@ public record MapConfig(
 
     public static MapConfig parse(JsonObject root, ValidationReport report) {
         String p = "map.json";
-        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", "height", "dimension_parameter", "sea_level",
+        Json.checkKnownKeys(root, p, report, "format", "files", "origin", "horizontal_scale", KEY_HEIGHT, "dimension_parameter", "sea_level",
                 "biome_transition", "outside", "spawn", "blocks", "decoration", "snow", VANILLA_STRUCTURES, "name", "description", "author", "$schema");
 
         int format = Json.integer(root, "format", CURRENT_FORMAT, p, report);
@@ -267,7 +276,7 @@ public record MapConfig(
             scale = 1.0;
         }
 
-        HeightSpec height = parseHeight(Json.object(root, "height", p, report), report);
+        HeightSpec height = parseHeight(Json.object(root, KEY_HEIGHT, p, report), report);
         Dimension dimension = parseDimension(Json.object(root, "dimension_parameter", p, report), report);
         int seaLevel = Json.integer(root, "sea_level", 63, p, report);
         int biomeTransition = Json.integer(root, "biome_transition", DEFAULT_BIOME_TRANSITION, p, report);
@@ -330,14 +339,14 @@ public record MapConfig(
             json = new JsonObject();
         }
         String p = "map.json.files";
-        Json.checkKnownKeys(json, p, report, "heightmap", "biomes", "biome_mapping", "water", "lava", "structures", "datapack");
+        Json.checkKnownKeys(json, p, report, FILE_HEIGHTMAP, FILE_BIOMES, FILE_BIOME_MAPPING, FILE_WATER, FILE_LAVA, FILE_STRUCTURES, "datapack");
         return new Files(
-                file(json, "heightmap", "heightmap.png", report), Json.has(json, "heightmap"),
-                file(json, "biomes", "biomes.png", report), Json.has(json, "biomes"),
-                file(json, "biome_mapping", "biomes.json", report), Json.has(json, "biome_mapping"),
-                file(json, "water", "water.png", report), Json.has(json, "water"),
-                file(json, "lava", "lava.png", report), Json.has(json, "lava"),
-                file(json, "structures", "structures.json", report), Json.has(json, "structures"),
+                file(json, FILE_HEIGHTMAP, "heightmap.png", report), Json.has(json, FILE_HEIGHTMAP),
+                file(json, FILE_BIOMES, "biomes.png", report), Json.has(json, FILE_BIOMES),
+                file(json, FILE_BIOME_MAPPING, "biomes.json", report), Json.has(json, FILE_BIOME_MAPPING),
+                file(json, FILE_WATER, "water.png", report), Json.has(json, FILE_WATER),
+                file(json, FILE_LAVA, "lava.png", report), Json.has(json, FILE_LAVA),
+                file(json, FILE_STRUCTURES, "structures.json", report), Json.has(json, FILE_STRUCTURES),
                 normalizeFolder(Json.string(json, "datapack", "datapack/", p, report)));
     }
 
@@ -404,9 +413,9 @@ public record MapConfig(
             return new Dimension(null, null);
         }
         String p = "map.json.dimension_parameter";
-        Json.checkKnownKeys(json, p, report, "min_y", "height", "max_y");
+        Json.checkKnownKeys(json, p, report, "min_y", KEY_HEIGHT, "max_y");
         Integer minY = Json.integer(json, "min_y", null, p, report);
-        Integer height = Json.integer(json, "height", null, p, report);
+        Integer height = Json.integer(json, KEY_HEIGHT, null, p, report);
         Integer maxY = Json.integer(json, "max_y", null, p, report);
         if (maxY != null) {
             if (height != null) {

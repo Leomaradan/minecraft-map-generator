@@ -91,118 +91,145 @@ public final class MapPackReader {
                 ? configJson.getAsJsonObject().get("name").getAsString()
                 : stripExtension(zipPath.getFileName().toString());
 
-        // Heightmap (required, under its default name or the one given in map.json)
-        if (!entries.containsKey(files.heightmap())) {
-            report.error(files.explicitHeightmap()
-                    ? missing(files.heightmap(), "heightmap")
-                    : "the ZIP has no heightmap: add " + files.heightmap() + ", or name your heightmap file in map.json with "
-                    + "\"files\": {\"heightmap\": \"<file>.png\"}");
-            return null;
-        }
-        PngImage heightImage = readPng(zip, entries, files.heightmap(), report);
-        if (heightImage == null) {
-            return null;
-        }
-        GrayRaster heightmap = GrayRaster.of(heightImage, files.heightmap(), report);
+        GrayRaster heightmap = readHeightmap(zip, entries, files, report);
         if (heightmap == null) {
             return null;
         }
-        int bitDepth = heightmap.bitDepth();
 
         // Water and lava: same size and same bit depth as the heightmap.
-        GrayRaster water = readFluid(zip, entries, files.water(), "water", files.explicitWater(), heightmap, report);
-        GrayRaster lava = readFluid(zip, entries, files.lava(), "lava", files.explicitLava(), heightmap, report);
+        GrayRaster water = readFluid(zip, entries, files.water(), MapConfig.FILE_WATER, files.explicitWater(), heightmap, report);
+        GrayRaster lava = readFluid(zip, entries, files.lava(), MapConfig.FILE_LAVA, files.explicitLava(), heightmap, report);
 
         // Biomes
-        BiomeMapping biomeMapping = BiomeMapping.EMPTY;
-        BiomeRaster biomes = null;
-        boolean hasBiomeMap = files.explicitBiomes() || entries.containsKey(files.biomes());
         boolean hasBiomeMapping = files.explicitBiomeMapping() || entries.containsKey(files.biomeMapping());
-        if (hasBiomeMapping) {
-            if (!entries.containsKey(files.biomeMapping())) {
-                report.error(missing(files.biomeMapping(), "biome_mapping"));
-            } else {
-                JsonElement mappingJson = readJson(zip, entries.get(files.biomeMapping()), files.biomeMapping(), report);
-                if (mappingJson != null && mappingJson.isJsonObject()) {
-                    biomeMapping = BiomeMapping.parse(mappingJson.getAsJsonObject(), files.biomeMapping(), report);
-                } else if (mappingJson != null) {
-                    report.error(files.biomeMapping() + " must be a JSON object");
-                }
-            }
-        }
-        if (hasBiomeMap) {
-            PngImage biomeImage = null;
-            if (!entries.containsKey(files.biomes())) {
-                report.error(missing(files.biomes(), "biomes"));
-            } else {
-                biomeImage = readPng(zip, entries, files.biomes(), report);
-            }
-            if (biomeImage != null) {
-                if (biomeImage.width() != heightmap.width() || biomeImage.height() != heightmap.height()) {
-                    report.error(files.biomes() + " is " + biomeImage.width() + "x" + biomeImage.height() + " but the heightmap is "
-                            + heightmap.width() + "x" + heightmap.height() + "; they must have the same size");
-                } else if (!hasBiomeMapping) {
-                    report.error(files.biomes() + " needs a biome mapping file (" + files.biomeMapping() + ")");
-                } else if (!biomeMapping.entries().isEmpty()) {
-                    biomes = BiomeRaster.build(biomeImage, biomeMapping, files.biomes(), report);
-                }
-            }
-        } else if (hasBiomeMapping) {
-            report.warn(files.biomeMapping() + " is present but there is no biome map (" + files.biomes() + "); it is ignored");
-        }
+        BiomeMapping biomeMapping = hasBiomeMapping ? readBiomeMapping(zip, entries, files, report) : BiomeMapping.EMPTY;
+        BiomeRaster biomes = readBiomes(zip, entries, files, heightmap, biomeMapping, hasBiomeMapping, report);
 
-        // Structures: read once the sampler exists (positions are in pixels)
-        JsonElement structuresJson = null;
-        if (files.explicitStructures() || entries.containsKey(files.structures())) {
-            if (!entries.containsKey(files.structures())) {
-                report.error(missing(files.structures(), "structures"));
-            } else {
-                structuresJson = readJson(zip, entries.get(files.structures()), files.structures(), report);
-            }
-        }
+        // Structures: parsed once the sampler exists (positions are in pixels)
+        JsonElement structuresJson = readOptionalJson(zip, entries, files.structures(), MapConfig.FILE_STRUCTURES, files.explicitStructures(),
+                report);
 
         // Embedded datapack
         Map<String, byte[]> datapack = readDatapack(zip, entries, files.datapack(), report);
 
-        // Vertical layout
-        HeightMapping heightMapping = HeightMapping.resolve(config.height(), bitDepth);
+        HeightMapping heightMapping = HeightMapping.resolve(config.height(), heightmap.bitDepth());
+        DimensionLayout layout = computeLayout(config, heightMapping, heightmap, water, lava, report);
+        if (report.hasErrors()) {
+            return null;
+        }
+        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes, biomeMapping);
+
+        List<StructureEntry> structures = structuresJson == null
+                ? List.of()
+                : StructureEntry.parseList(structuresJson, files.structures(), entries.keySet(), sampler, report);
+        Map<String, byte[]> templates = readTemplates(zip, entries, structures);
+        if (report.hasErrors()) {
+            return null;
+        }
+        return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
+                templates, datapack, layout, sampler);
+    }
+
+    /** The heightmap, under its default name or the one given in map.json; null (with an error) if unusable. */
+    private static GrayRaster readHeightmap(ZipFile zip, Map<String, ZipEntry> entries, MapConfig.Files files, ValidationReport report)
+            throws IOException {
+        if (!entries.containsKey(files.heightmap())) {
+            report.error(files.explicitHeightmap()
+                    ? missing(files.heightmap(), MapConfig.FILE_HEIGHTMAP)
+                    : "the ZIP has no heightmap: add " + files.heightmap() + ", or name your heightmap file in map.json with "
+                    + "\"files\": {\"heightmap\": \"<file>.png\"}");
+            return null;
+        }
+        PngImage image = readPng(zip, entries, files.heightmap(), report);
+        return image == null ? null : GrayRaster.of(image, files.heightmap(), report);
+    }
+
+    private static BiomeMapping readBiomeMapping(ZipFile zip, Map<String, ZipEntry> entries, MapConfig.Files files, ValidationReport report)
+            throws IOException {
+        JsonElement json = readOptionalJson(zip, entries, files.biomeMapping(), MapConfig.FILE_BIOME_MAPPING, true, report);
+        if (json == null) {
+            return BiomeMapping.EMPTY;
+        }
+        if (!json.isJsonObject()) {
+            report.error(files.biomeMapping() + " must be a JSON object");
+            return BiomeMapping.EMPTY;
+        }
+        return BiomeMapping.parse(json.getAsJsonObject(), files.biomeMapping(), report);
+    }
+
+    /** The biome map, or null when there is none (or it is unusable, with an error). */
+    private static BiomeRaster readBiomes(ZipFile zip, Map<String, ZipEntry> entries, MapConfig.Files files, GrayRaster heightmap,
+                                          BiomeMapping mapping, boolean hasBiomeMapping, ValidationReport report) throws IOException {
+        if (!files.explicitBiomes() && !entries.containsKey(files.biomes())) {
+            if (hasBiomeMapping) {
+                report.warn(files.biomeMapping() + " is present but there is no biome map (" + files.biomes() + "); it is ignored");
+            }
+            return null;
+        }
+        if (!entries.containsKey(files.biomes())) {
+            report.error(missing(files.biomes(), MapConfig.FILE_BIOMES));
+            return null;
+        }
+        PngImage image = readPng(zip, entries, files.biomes(), report);
+        if (image == null) {
+            return null;
+        }
+        if (image.width() != heightmap.width() || image.height() != heightmap.height()) {
+            report.error(files.biomes() + " is " + image.width() + "x" + image.height() + " but the heightmap is "
+                    + heightmap.width() + "x" + heightmap.height() + "; they must have the same size");
+            return null;
+        }
+        if (!hasBiomeMapping) {
+            report.error(files.biomes() + " needs a biome mapping file (" + files.biomeMapping() + ")");
+            return null;
+        }
+        return mapping.entries().isEmpty() ? null : BiomeRaster.build(image, mapping, files.biomes(), report);
+    }
+
+    /**
+     * A JSON file that is read only if present, unless {@code explicit} (named in map.json), in
+     * which case it must be present.
+     */
+    private static JsonElement readOptionalJson(ZipFile zip, Map<String, ZipEntry> entries, String path, String key, boolean explicit,
+                                                ValidationReport report) throws IOException {
+        if (!entries.containsKey(path)) {
+            if (explicit) {
+                report.error(missing(path, key));
+            }
+            return null;
+        }
+        return readJson(zip, entries.get(path), path, report);
+    }
+
+    /** Vertical extent of the world from the lowest and highest blocks the map produces. */
+    private static DimensionLayout computeLayout(MapConfig config, HeightMapping mapping, GrayRaster heightmap, GrayRaster water,
+                                                 GrayRaster lava, ValidationReport report) {
         int[] range = valueRange(heightmap);
-        int lowest = heightMapping.toBlockY(range[0]);
-        int highest = heightMapping.toBlockY(range[1]);
+        int lowest = mapping.toBlockY(range[0]);
+        int highest = mapping.toBlockY(range[1]);
         for (GrayRaster fluid : new GrayRaster[]{water, lava}) {
-            if (fluid != null) {
-                int max = valueRange(fluid)[1];
-                if (max > 0) {
-                    highest = Math.max(highest, heightMapping.toBlockY(max));
-                }
+            int max = fluid == null ? 0 : valueRange(fluid)[1];
+            if (max > 0) {
+                highest = Math.max(highest, mapping.toBlockY(max));
             }
         }
         if (config.outside().mode() == MapConfig.OutsideMode.FLAT) {
             lowest = Math.min(lowest, config.outside().groundLevel());
             highest = Math.max(highest, Math.max(config.outside().groundLevel(), config.outside().waterLevel()));
         }
-        DimensionLayout layout = DimensionLayout.compute(config.dimension(), lowest, highest, report);
+        return DimensionLayout.compute(config.dimension(), lowest, highest, report);
+    }
 
-        if (report.hasErrors()) {
-            return null;
-        }
-        TerrainSampler sampler = new TerrainSampler(config, heightmap, heightMapping, water, lava, biomes, biomeMapping);
-
-        List<StructureEntry> structures = List.of();
+    /** Raw .nbt files referenced by template structures, by ZIP path. */
+    private static Map<String, byte[]> readTemplates(ZipFile zip, Map<String, ZipEntry> entries, List<StructureEntry> structures)
+            throws IOException {
         Map<String, byte[]> templates = new HashMap<>();
-        if (structuresJson != null) {
-            structures = StructureEntry.parseList(structuresJson, files.structures(), entries.keySet(), sampler, report);
-            for (StructureEntry entry : structures) {
-                if (entry instanceof StructureEntry.Template template && !templates.containsKey(template.path())) {
-                    templates.put(template.path(), readBytes(zip, entries.get(template.path())));
-                }
+        for (StructureEntry entry : structures) {
+            if (entry instanceof StructureEntry.Template template && !templates.containsKey(template.path())) {
+                templates.put(template.path(), readBytes(zip, entries.get(template.path())));
             }
         }
-        if (report.hasErrors()) {
-            return null;
-        }
-        return new MapPack(id, name, zipPath, config, heightmap, heightMapping, biomes, biomeMapping, water, lava, structures,
-                Map.copyOf(templates), datapack, layout, sampler);
+        return Map.copyOf(templates);
     }
 
     /**
