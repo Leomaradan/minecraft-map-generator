@@ -16,6 +16,17 @@ The format is described in [docs/FORMAT.md](../docs/FORMAT.md). `example/` conta
 builds two sample maps (`example/example.zip`, and `example/example-tall.zip` with 16-bit maps and a
 700-block-high world).
 
+## Minecraft versions
+
+This branch (`main`) builds the mod for Minecraft 26.3. Minecraft 26.1 (26.1.x) and 26.2 are built
+from the long-lived [`mc/26.1-26.2`](https://github.com/Leomaradan/minecraft-map-generator/tree/mc/26.1-26.2) branch: 26.3 rewrote the world
+generation API (density functions, carvers, structure starts, biome resolvers) and replaced GLFW
+with SDL3, so the generator code differs between the two branches. Fixes to the generator are
+ported by hand from one branch to the other; `core/` is the same on both.
+
+The map ZIP format is the same for every version, but a map's `datapack/` follows Minecraft's own
+format: custom biomes written for 26.3 don't load on 26.1 or 26.2, and the other way round.
+
 ## Mod loaders
 
 | Loader | Status |
