@@ -10,6 +10,7 @@ biome map, water and lava maps, `map.json`, structures and an optional datapack.
 - `mod/`: a Minecraft 26.3 mod (Fabric and NeoForge) that adds a "Map from ZIP" world type. Minecraft 26.1 and 26.2 are built from the long-lived `mc/26.1-26.2` branch. Never merge that branch into `main`. Generator fixes are ported by hand in both directions, because 26.3 rewrote the world generation API. See that branch's CLAUDE.md for the differences.
 - `site/`: the GitHub Pages site. It has a landing page and a browser editor that creates and edits map ZIPs.
 - `docs/FORMAT.md` and `docs/schemas/*.schema.json`: the format spec. Both products depend on it.
+- `extractors/`: tools that write map ZIPs from existing games, one project per folder. `extractors/warcraft/` reads a local World of Warcraft installation. The extractors aren't mentioned on the site.
 
 ## Commands
 
@@ -39,6 +40,18 @@ pnpm build           # typecheck + vite build to dist/
 ```
 
 The site uses pnpm. Its version is pinned in `packageManager` in `site/package.json`, and CI installs with `--frozen-lockfile`. Commit `pnpm-lock.yaml` with any dependency change, and don't add a `package-lock.json`.
+
+### World of Warcraft extractor (run from `extractors/warcraft/`)
+
+Node.js 22.18+ runs the TypeScript sources directly (type stripping): there's no build step and no runtime dependency. It uses pnpm like the site, with its own `pnpm-lock.yaml`.
+
+```sh
+pnpm install         # TypeScript, Node types and Ajv, for checks only
+pnpm test            # node:test, including test/schemas.test.ts (generated JSON vs docs/schemas)
+pnpm typecheck
+node src/cli.ts list                                   # needs a WoW installation (auto-detected, or --wow / WOW_DIR)
+node src/cli.ts extract Azeroth --zone ElwynnForest --structures
+```
 
 ## Architecture
 
@@ -83,6 +96,14 @@ The site uses pnpm. Its version is pinned in `packageManager` in `site/package.j
   - `autosave.ts`: saves a draft ZIP to IndexedDB.
 - Editor-only state goes into the exported ZIP as `editor.json` and `editor/*` files (fluid body labels PNG, body definitions, structure templates, reference images). The mod ignores these files. The editor uses them to restore a project on import. `importZip` also migrates data from older editor versions, so keep those compatibility branches.
 
+### World of Warcraft extractor
+
+- `src/casc/`: read-only access to the game's local CASC storage (indices, BLTE, encoding, root).
+- `src/formats/`: DB2 (WDC4/5, column names from WoWDBDefs, cached in `~/.cache/warcraft-map-extractor`), WDT, ADT (heights, holes, liquids), WMO (models), BLP (texture colors).
+- `src/terrain.ts`: samples the terrain mesh on the output grid. `src/models.ts`: rasterizes WMO models for floating and underground maps. `src/structures.ts`: voxelizes buildings into chunk-sized NBT templates.
+- `src/extract.ts`: cropping (zones, tiles) and map type detection. `src/mapPack.ts`: writes the map ZIP (PNGs, `map.json`, `biomes.json`, `structures.json`). `src/biomes.ts`: zone to biome table.
+- See its README for the details and limits.
+
 ### Keeping things in sync
 
 The format is implemented twice, in Java (`mod/core`) and in TypeScript (`site/src/lib`). If you change the format:
@@ -91,6 +112,7 @@ The format is implemented twice, in Java (`mod/core`) and in TypeScript (`site/s
 2. Update the Java parser and validation in `mod/core`, and add tests.
 3. Update `site/src/lib` (`zipIO.ts`, `heightMapping.ts`, …) and the editor UI.
 4. If the examples should use the change, regenerate them with `mod/example/make_example.py`. The site bundles `mod/example/*.zip` into `dist/examples/`.
+5. If the extractors should write the change, update them (`extractors/warcraft/src/mapPack.ts`). Their tests validate what they write against `docs/schemas`, and their CI runs when the schemas change.
 
 ## CI
 
@@ -99,6 +121,7 @@ Workflows only run for changes in their own folder.
 - `mod.yml`: runs on changes to `mod/**`. It runs `./gradlew build` and uploads the `mapgen-fabric` and `mapgen-neoforge` artifacts (the mod jar only).
 - `sonar-mod.yaml`: runs SonarCloud analysis on PRs that touch `mod/`. Sonar findings get fixed regularly, so keep methods short and parameter counts low.
 - `release.yml`: runs on a `v*` tag and creates a GitHub release with both jars and the example ZIPs.
+- `extractors.yml`: runs on changes to `extractors/**` or `docs/schemas/**`. It type checks and tests each extractor (no game data needed).
 - `site.yml`: runs on changes to `site/**`, `docs/**` or the example ZIPs. It runs `pnpm test` and `pnpm build`, then deploys to GitHub Pages on push to `main`.
 
 ## Conventions
