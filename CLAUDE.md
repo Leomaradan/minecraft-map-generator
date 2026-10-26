@@ -120,7 +120,7 @@ Workflows only run for changes in their own folder.
 
 - `mod.yml`: runs on changes to `mod/**`. It runs `./gradlew build` and uploads the `mapgen-fabric` and `mapgen-neoforge` artifacts (the mod jar only).
 - `sonar-mod.yaml`: runs SonarCloud analysis on PRs that touch `mod/`. Sonar findings get fixed regularly, so keep methods short and parameter counts low.
-- `release.yml`: runs on a `v*` tag and creates a GitHub release with both jars and the example ZIPs.
+- `release.yml`: runs on a `v*` tag, which must match `version` in `mod/gradle.properties`. It publishes with mc-publish: one CurseForge and Modrinth version per loader (Fabric, also marked for Quilt, and NeoForge), and a GitHub release with both jars and the example ZIPs. Project IDs are in the repository variables `CURSEFORGE_PROJECT_ID` and `MODRINTH_PROJECT_ID`, tokens in the secrets `CURSEFORGE_TOKEN` and `MODRINTH_TOKEN`. A platform without a token is skipped.
 - `extractors.yml`: runs on changes to `extractors/**` or `docs/schemas/**`. It type checks and tests each extractor (no game data needed).
 - `site.yml`: runs on changes to `site/**`, `docs/**` or the example ZIPs. It runs `pnpm test` and `pnpm build`, then deploys to GitHub Pages on push to `main`.
 

@@ -92,8 +92,12 @@ python3 example/make_example.py   # rebuild the example maps
   workflow artifacts, `mapgen-fabric` and `mapgen-neoforge`, each holding only the mod jar
   (`mapgen-<loader>-<minecraft version>-<version>.jar`). The sources and javadoc jars stay in the
   local `build/libs` folders.
-* `.github/workflows/release.yml` runs on a `v*` tag and creates a GitHub release with the same two
-  jars and the example map ZIPs.
+* `.github/workflows/release.yml` runs on a `v*` tag matching `version` in `gradle.properties`
+  (`v1.0.1` for `version=1.0.1`). It publishes the same two jars with
+  [mc-publish](https://github.com/Kira-NT/mc-publish): one version per loader on CurseForge and
+  Modrinth, and a GitHub release with both jars and the example map ZIPs. It needs the repository
+  variables `CURSEFORGE_PROJECT_ID` and `MODRINTH_PROJECT_ID` and the secrets `CURSEFORGE_TOKEN` and
+  `MODRINTH_TOKEN`; a platform without a token is skipped.
 
 Artifact names come from `mod_id` in `gradle.properties`, so the workflows can be copied to another
 mod built from the same template without changes.
