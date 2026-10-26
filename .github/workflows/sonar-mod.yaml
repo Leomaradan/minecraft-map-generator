@@ -44,5 +44,6 @@ jobs:
 
       - name: Build and analyze
         env:
+          # Dependabot PRs read this from the Dependabot secrets, not the Actions secrets.
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./gradlew build sonar --info
