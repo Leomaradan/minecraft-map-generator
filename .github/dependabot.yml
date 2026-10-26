@@ -9,3 +9,8 @@ updates:
     directory: "/mod"
     schedule:
       interval: "weekly"
+    ignore:
+      # compileOnly in mod/common/build.gradle: these must match the versions
+      # Fabric Loader and NeoForge bundle, so they are bumped by hand.
+      - dependency-name: "net.fabricmc:sponge-mixin"
+      - dependency-name: "io.github.llamalad7:mixinextras-common"

@@ -126,5 +126,6 @@ Workflows only run for changes in their own folder.
 
 ## Conventions
 
+- Files use LF line endings, enforced by `.gitattributes`. Only `*.bat` files stay CRLF. Never commit a CRLF file.
 - Write code comments and docs in English. The mod has `en_us` and `fr_fr` lang files, so add any new UI string to both.
 - Versions are in `mod/gradle.properties` (`version`) and `site/package.json`. They are currently in lockstep at 1.0.0.
