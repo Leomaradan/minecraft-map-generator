@@ -225,17 +225,20 @@ class TerrainSamplerTest {
         assertEquals(MapConfig.Carvers.ALL, config("{}").decoration().carvers());
         assertEquals(MapConfig.Carvers.NONE, config("{\"decoration\": {\"carvers\": false}}").decoration().carvers());
         MapConfig.Carvers caves = config("{\"decoration\": {\"carvers\": {\"canyon\": false}}}").decoration().carvers();
-        assertEquals(new MapConfig.Carvers(true, false, true), caves);
+        assertEquals(new MapConfig.Carvers(true, false, true, true), caves);
         assertTrue(caves.any());
         assertFalse(MapConfig.Carvers.NONE.any());
         // Noise caves follow "cave" unless set
-        assertEquals(new MapConfig.Carvers(false, true, false), config("{\"decoration\": {\"carvers\": {\"cave\": false}}}").decoration().carvers());
-        assertEquals(new MapConfig.Carvers(false, false, true),
+        assertEquals(new MapConfig.Carvers(false, true, false, true), config("{\"decoration\": {\"carvers\": {\"cave\": false}}}").decoration().carvers());
+        assertEquals(new MapConfig.Carvers(false, false, true, true),
                 config("{\"decoration\": {\"carvers\": {\"cave\": false, \"canyon\": false, \"noise\": true}}}").decoration().carvers());
-        assertTrue(new MapConfig.Carvers(false, false, true).any());
-        assertTrue(new MapConfig.Carvers(false, true, false).any());
+        assertTrue(new MapConfig.Carvers(false, false, true, true).any());
+        assertTrue(new MapConfig.Carvers(false, true, false, true).any());
+        // Caves may open on the surface unless "surface" is false
+        assertEquals(new MapConfig.Carvers(true, true, true, false),
+                config("{\"decoration\": {\"carvers\": {\"surface\": false}}}").decoration().carvers());
 
-        for (String carvers : new String[]{"3", "{\"cave\": \"yes\"}"}) {
+        for (String carvers : new String[]{"3", "{\"cave\": \"yes\"}", "{\"surface\": 1}"}) {
             ValidationReport report = new ValidationReport();
             MapConfig.parse(JsonParser.parseString("{\"decoration\": {\"carvers\": " + carvers + "}}").getAsJsonObject(), report);
             assertTrue(report.hasErrors(), carvers);
