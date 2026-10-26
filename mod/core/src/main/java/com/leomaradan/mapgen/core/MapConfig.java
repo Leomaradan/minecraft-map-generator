@@ -219,17 +219,18 @@ public record MapConfig(
     /**
      * Which caves are dug: {@code cave} (the biomes' cave carvers: tunnels), {@code canyon}
      * (ravines) and {@code noise} (Minecraft's noise caves: large caverns, spaghetti and noodle
-     * caves, cave entrances).
+     * caves, cave entrances). {@code surface}: whether the caves may open on the ground of the map;
+     * when false, they stay under a few blocks of ground.
      */
-    public record Carvers(boolean cave, boolean canyon, boolean noise) {
-        public static final Carvers ALL = new Carvers(true, true, true);
-        public static final Carvers NONE = new Carvers(false, false, false);
+    public record Carvers(boolean cave, boolean canyon, boolean noise, boolean surface) {
+        public static final Carvers ALL = new Carvers(true, true, true, true);
+        public static final Carvers NONE = new Carvers(false, false, false, true);
 
         public boolean any() {
             return this.cave || this.canyon || this.noise;
         }
 
-        /** {@code true}, {@code false} or {@code {"cave", "canyon", "noise"}}; null when absent or invalid. */
+        /** {@code true}, {@code false} or {@code {"cave", "canyon", "noise", "surface"}}; null when absent or invalid. */
         static Carvers parse(JsonObject parent, String key, String path, ValidationReport report) {
             JsonElement e = parent.get(key);
             if (e == null || e.isJsonNull()) {
@@ -240,14 +241,15 @@ public record MapConfig(
                 return e.getAsBoolean() ? ALL : NONE;
             }
             if (!e.isJsonObject()) {
-                report.error(cp + " must be true, false or {\"cave\": ..., \"canyon\": ..., \"noise\": ...}");
+                report.error(cp + " must be true, false or {\"cave\": ..., \"canyon\": ..., \"noise\": ..., \"surface\": ...}");
                 return null;
             }
             JsonObject o = e.getAsJsonObject();
-            Json.checkKnownKeys(o, cp, report, "cave", "canyon", "noise");
+            Json.checkKnownKeys(o, cp, report, "cave", "canyon", "noise", "surface");
             boolean cave = Json.bool(o, "cave", true, cp, report);
             // Noise caves follow "cave" unless set: {"canyon": false} keeps every kind of cave.
-            return new Carvers(cave, Json.bool(o, "canyon", true, cp, report), Json.bool(o, "noise", cave, cp, report));
+            return new Carvers(cave, Json.bool(o, "canyon", true, cp, report), Json.bool(o, "noise", cave, cp, report),
+                    Json.bool(o, "surface", true, cp, report));
         }
     }
 
