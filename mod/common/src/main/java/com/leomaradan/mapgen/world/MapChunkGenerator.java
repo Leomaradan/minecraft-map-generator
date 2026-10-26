@@ -68,6 +68,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -524,7 +525,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         if (!mask.isEmpty()) {
-            applyCarvingMask(chunk, mask, carvingTops(l, pos));
+            applyCarvingMask(chunk, mask, this.carvingTops(l, pos));
         }
     }
 
@@ -533,11 +534,19 @@ public final class MapChunkGenerator extends ChunkGenerator {
      * blocks under the ground where the column's carver rule keeps the caves closed on the surface.
      * Null when every column may open.
      */
-    private static int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
-        if (l == null || l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
+    private int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
+        int[] tops = new int[256];
+        if (l == null) {
+            // No map: flat placeholder ground, with the rule saved in the settings.
+            if (this.settings.surfaceCaves()) {
+                return null;
+            }
+            Arrays.fill(tops, UNCONFIGURED_GROUND - NoiseCaves.COVER);
+            return tops;
+        }
+        if (l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
             return null;
         }
-        int[] tops = new int[256];
         TerrainSampler.Column column = new TerrainSampler.Column();
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
@@ -581,17 +590,18 @@ public final class MapChunkGenerator extends ChunkGenerator {
             int worldZ = pos.getBlockZ(z);
             int top = tops == null ? topY : Math.min(topY, tops[x * 16 + z]);
             for (int y = top; y >= bottomY; y--) {
-                blockPos.set(worldX, y, worldZ);
-                BlockState state = chunk.getBlockState(blockPos);
-                if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty()) {
-                    continue;
-                }
-                if (touchesFluid(chunk, blockPos, neighbor)) {
-                    continue;
-                }
-                chunk.setBlockState(blockPos, y <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
+                carveMaskedBlock(chunk, blockPos.set(worldX, y, worldZ), neighbor, lavaLevel);
             }
         });
+    }
+
+    /** Turns one carved block into cave air (or lava), unless it is air, a fluid, uncarvable or next to a fluid. */
+    private static void carveMaskedBlock(ChunkAccess chunk, BlockPos pos, BlockPos.MutableBlockPos neighbor, int lavaLevel) {
+        BlockState state = chunk.getBlockState(pos);
+        if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty() || touchesFluid(chunk, pos, neighbor)) {
+            return;
+        }
+        chunk.setBlockState(pos, pos.getY() <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
     }
 
     /** True if a block above or beside (within the chunk) is a fluid: carving there would drain lakes. */
