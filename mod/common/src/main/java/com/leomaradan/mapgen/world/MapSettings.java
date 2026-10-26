@@ -19,11 +19,12 @@ import java.util.Optional;
  * @param biomeFeatures feature filters of biomes.json entries, by biome (the generator lists each biome's features before the pack is loaded)
  * @param carvers       cave carvers (and canyon carvers when {@code canyons} is absent, as before it existed)
  * @param noiseCaves    noise caves; when absent (worlds created before it existed) they follow {@code carvers}
+ * @param surfaceCaves  whether the caves may open on the ground of the map
  */
 public record MapSettings(String pack, String dimension, String name, int minY, int height, int seaLevel, boolean features, List<String> disabledFeatures,
                           List<String> disabledFeatureSteps, Optional<List<String>> onlyFeatures, List<BiomeFeatures> biomeFeatures,
                           boolean carvers, Optional<Boolean> canyons, Optional<Boolean> noiseCaves, boolean vanillaStructures, List<String> disabledStructures,
-                          Optional<List<String>> onlyStructures) {
+                          Optional<List<String>> onlyStructures, boolean surfaceCaves) {
 
     /** Feature filter of one biomes.json entry or substitute. */
     public record BiomeFeatures(String biome, boolean enabled, List<String> disabled, List<String> disabledSteps, Optional<List<String>> only) {
@@ -44,7 +45,7 @@ public record MapSettings(String pack, String dimension, String name, int minY, 
         }
     }
 
-    /** Every field but {@code dimension} (a record codec takes at most 16 fields). */
+    /** Every field but {@code dimension} and {@code surface_caves} (a record codec takes at most 16 fields). */
     private static final MapCodec<MapSettings> FIELDS = RecordCodecBuilder.mapCodec(i -> i.group(
             Codec.STRING.optionalFieldOf("pack", "").forGetter(MapSettings::pack),
             Codec.STRING.optionalFieldOf("name", "").forGetter(MapSettings::name),
@@ -65,17 +66,18 @@ public record MapSettings(String pack, String dimension, String name, int minY, 
     ).apply(i, i.stable((pack, name, minY, height, seaLevel, features, disabledFeatures, disabledFeatureSteps, onlyFeatures, biomeFeatures,
             carvers, canyons, noiseCaves, vanillaStructures, disabledStructures, onlyStructures) -> new MapSettings(pack, "", name, minY, height,
             seaLevel, features, disabledFeatures, disabledFeatureSteps, onlyFeatures, biomeFeatures, carvers, canyons, noiseCaves,
-            vanillaStructures, disabledStructures, onlyStructures))));
+            vanillaStructures, disabledStructures, onlyStructures, true))));
 
     public static final Codec<MapSettings> CODEC = RecordCodecBuilder.create(i -> i.group(
             FIELDS.forGetter(s -> s),
-            Codec.STRING.optionalFieldOf("dimension", "").forGetter(MapSettings::dimension)
-    ).apply(i, i.stable(MapSettings::withDimension)));
+            Codec.STRING.optionalFieldOf("dimension", "").forGetter(MapSettings::dimension),
+            Codec.BOOL.optionalFieldOf("surface_caves", true).forGetter(MapSettings::surfaceCaves)
+    ).apply(i, i.stable(MapSettings::with)));
 
     /** Settings of a world type selected without a ZIP yet. */
     public static final MapSettings UNCONFIGURED = new MapSettings("", "", "", DimensionLayout.VANILLA_MIN_Y, DimensionLayout.VANILLA_HEIGHT, 63,
             true, List.of(), List.of(), Optional.empty(), List.of(), true, Optional.empty(), Optional.empty(), true, List.of(),
-            Optional.empty());
+            Optional.empty(), true);
 
     public static MapSettings of(MapPack pack) {
         MapConfig config = pack.config();
@@ -88,20 +90,21 @@ public record MapSettings(String pack, String dimension, String name, int minY, 
                 .toList();
         return new MapSettings(pack.id(), pack.dimension().id(), pack.name(), pack.layout().minY(), pack.layout().height(), config.seaLevel(),
                 features.enabled(), features.disabled(), features.disabledSteps(), Optional.ofNullable(features.only()), biomeFeatures,
-                carvers.cave(), Optional.of(carvers.canyon()), Optional.of(carvers.noise()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()));
+                carvers.cave(), Optional.of(carvers.canyon()), Optional.of(carvers.noise()), structures.enabled(), structures.disabled(), Optional.ofNullable(structures.only()),
+                carvers.surface());
     }
 
-    private MapSettings withDimension(String dimension) {
+    private MapSettings with(String dimension, boolean surfaceCaves) {
         return new MapSettings(this.pack, dimension, this.name, this.minY, this.height, this.seaLevel, this.features, this.disabledFeatures,
                 this.disabledFeatureSteps, this.onlyFeatures, this.biomeFeatures, this.carvers, this.canyons, this.noiseCaves,
-                this.vanillaStructures, this.disabledStructures, this.onlyStructures);
+                this.vanillaStructures, this.disabledStructures, this.onlyStructures, surfaceCaves);
     }
 
     /** The same settings for a dimension of another height (the height of its dimension type). */
     public MapSettings withLayout(int minY, int height) {
         return new MapSettings(this.pack, this.dimension, this.name, minY, height, this.seaLevel, this.features, this.disabledFeatures,
                 this.disabledFeatureSteps, this.onlyFeatures, this.biomeFeatures, this.carvers, this.canyons, this.noiseCaves,
-                this.vanillaStructures, this.disabledStructures, this.onlyStructures);
+                this.vanillaStructures, this.disabledStructures, this.onlyStructures, this.surfaceCaves);
     }
 
     public boolean isConfigured() {
@@ -113,7 +116,7 @@ public record MapSettings(String pack, String dimension, String name, int minY, 
     }
 
     public MapConfig.Carvers carverFilter() {
-        return new MapConfig.Carvers(this.carvers, this.canyons.orElse(this.carvers), this.noiseCaves.orElse(this.carvers));
+        return new MapConfig.Carvers(this.carvers, this.canyons.orElse(this.carvers), this.noiseCaves.orElse(this.carvers), this.surfaceCaves);
     }
 
     public MapConfig.VanillaStructures structureFilter() {

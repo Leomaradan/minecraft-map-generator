@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * and interpolated inside each cell.
  * <p>
  * Caves are dry: no aquifers, lava only at the very bottom like the carvers. They never open into
- * the map's water and lava.
+ * the map's water and lava, and open on the ground only where the carver rule allows it.
  */
 public final class NoiseCaves {
     private static final int CELL_XZ = 4;
@@ -46,8 +46,8 @@ public final class NoiseCaves {
     private static final float DEPTH_SCALE = 32.0f;
     /** Below this "sloped cheese", only entrances (and noodles) dig: no caverns near the surface. */
     private static final float SURFACE_LIMIT = 1.5625f;
-    /** Solid blocks kept under the ground of columns next to the map's fluids. */
-    private static final int FLUID_COVER = 8;
+    /** Solid blocks kept above the caves of covered columns (next to the map's fluids, or caves closed on the surface). */
+    static final int COVER = 8;
     /** Lava below this many blocks above the bottom of the world, as the carvers do. */
     private static final int LAVA_DEPTH = 8;
 
@@ -106,8 +106,11 @@ public final class NoiseCaves {
         /** Whether the column may have noise caves (its biome's carver rule). */
         boolean enabled(int x, int z);
 
-        /** Whether the column or a neighbor has map water or lava on top. */
-        boolean nearFluid(int x, int z);
+        /**
+         * Whether the caves must stay {@link NoiseCaves#COVER} blocks under the ground: the column or a neighbor
+         * has map water or lava on top, or its carver rule keeps the caves closed on the surface.
+         */
+        boolean covered(int x, int z);
     }
 
     /** Digs the caves of one chunk. */
@@ -127,13 +130,17 @@ public final class NoiseCaves {
 
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
-                carveColumn(chunk, corners, cellsY, dx, dz, terrain[dx * 16 + dz]);
+                int ground = columns.terrainY(chunk.getPos().getBlockX(dx), chunk.getPos().getBlockZ(dz));
+                carveColumn(chunk, corners, cellsY, dx, dz, ground, terrain[dx * 16 + dz]);
             }
         }
     }
 
-    /** Digs the caves of one column of the chunk, up to {@code top}. */
-    private static void carveColumn(ChunkAccess chunk, float[][] corners, int cellsY, int dx, int dz, int top) {
+    /**
+     * Digs the caves of one column of the chunk, up to {@code top}. The density depends on the depth
+     * below {@code ground}, so a covered column keeps the cave shapes of its neighbors.
+     */
+    private static void carveColumn(ChunkAccess chunk, float[][] corners, int cellsY, int dx, int dz, int ground, int top) {
         int minY = chunk.getMinY();
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos(chunk.getPos().getBlockX(dx), minY, chunk.getPos().getBlockZ(dz));
         float[] value = new float[COMPONENTS];
@@ -141,13 +148,13 @@ public final class NoiseCaves {
             for (int c = 0; c < COMPONENTS; c++) {
                 value[c] = interpolate(corners[c], cellsY, dx, y - minY, dz);
             }
-            if (density(value, top - y) < 0) {
+            if (density(value, ground - y) < 0) {
                 carveBlock(chunk, blockPos.setY(y));
             }
         }
     }
 
-    /** Highest block of each column where caves may be dug (below the ground, and deeper next to the map's fluids). */
+    /** Highest block of each column where caves may be dug (below the ground, and deeper in covered columns). */
     private static int[] cavesTops(ChunkAccess chunk, Columns columns) {
         ChunkPos pos = chunk.getPos();
         int[] terrain = new int[256];
@@ -156,8 +163,8 @@ public final class NoiseCaves {
                 int x = pos.getBlockX(dx);
                 int z = pos.getBlockZ(dz);
                 int top = columns.enabled(x, z) ? columns.terrainY(x, z) : TerrainSampler.NONE;
-                if (top != TerrainSampler.NONE && columns.nearFluid(x, z)) {
-                    top -= FLUID_COVER;
+                if (top != TerrainSampler.NONE && columns.covered(x, z)) {
+                    top -= COVER;
                 }
                 terrain[dx * 16 + dz] = Math.min(top, chunk.getMaxY());
             }
