@@ -76,6 +76,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -437,6 +438,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
         private final int[] terrain = new int[SIZE * SIZE];
         private final boolean[] fluid = new boolean[SIZE * SIZE];
         private final boolean[] enabled = new boolean[SIZE * SIZE];
+        private final boolean[] surface = new boolean[SIZE * SIZE];
 
         ChunkColumns(Loaded l, ChunkPos pos) {
             this.originX = pos.getMinBlockX() - 1;
@@ -449,7 +451,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
                     l.sampler.sample(x, z, column);
                     this.terrain[i * SIZE + j] = column.terrainY;
                     this.fluid[i * SIZE + j] = column.fluidTop() != TerrainSampler.NONE;
-                    this.enabled[i * SIZE + j] = l.carvers.get(l.index(column.biome)).noise();
+                    MapConfig.Carvers rule = l.carvers.get(l.index(column.biome));
+                    this.enabled[i * SIZE + j] = rule.noise();
+                    this.surface[i * SIZE + j] = rule.surface();
                 }
             }
         }
@@ -469,9 +473,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
 
         @Override
-        public boolean nearFluid(int x, int z) {
+        public boolean covered(int x, int z) {
             int i = this.index(x, z);
-            return this.fluid[i] || this.fluid[i - 1] || this.fluid[i + 1] || this.fluid[i - SIZE] || this.fluid[i + SIZE];
+            return !this.surface[i] || this.fluid[i] || this.fluid[i - 1] || this.fluid[i + 1] || this.fluid[i - SIZE] || this.fluid[i + SIZE];
         }
     }
 
@@ -553,8 +557,37 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         if (carved) {
-            applyCarvingMask(chunk, mask, minY, maxY);
+            applyCarvingMask(chunk, mask, minY, maxY, this.carvingTops(l, pos));
         }
+    }
+
+    /**
+     * Highest block the carvers may dig in each column of the chunk: {@link NoiseCaves#COVER}
+     * blocks under the ground where the column's carver rule keeps the caves closed on the surface.
+     * Null when every column may open.
+     */
+    private int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
+        int[] tops = new int[256];
+        if (l == null) {
+            // No map: flat placeholder ground, with the rule saved in the settings.
+            if (this.settings.surfaceCaves()) {
+                return null;
+            }
+            Arrays.fill(tops, UNCONFIGURED_GROUND - NoiseCaves.COVER);
+            return tops;
+        }
+        if (l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
+            return null;
+        }
+        TerrainSampler.Column column = new TerrainSampler.Column();
+        for (int dx = 0; dx < 16; dx++) {
+            for (int dz = 0; dz < 16; dz++) {
+                l.sampler.sample(pos.getBlockX(dx), pos.getBlockZ(dz), column);
+                boolean open = column.terrainY == TerrainSampler.NONE || l.carvers.get(l.index(column.biome)).surface();
+                tops[dx * 16 + dz] = open ? Integer.MAX_VALUE : column.terrainY - NoiseCaves.COVER;
+            }
+        }
+        return tops;
     }
 
     /** What every carver of a chunk is run with. */
@@ -633,8 +666,11 @@ public final class MapChunkGenerator extends ChunkGenerator {
         return generator;
     }
 
-    /** Turns the carved blocks into cave air (lava near the bottom), except next to the map's fluids. */
-    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask, int minY, int maxY) {
+    /**
+     * Turns the carved blocks into cave air (lava near the bottom), except next to the map's fluids
+     * and above {@code tops} (from {@link #carvingTops}).
+     */
+    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask, int minY, int maxY, int @Nullable [] tops) {
         ChunkPos pos = chunk.getPos();
         int lavaLevel = chunk.getMinY() + 8;
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
@@ -643,7 +679,8 @@ public final class MapChunkGenerator extends ChunkGenerator {
             for (int z = 0; z < 16; z++) {
                 int worldX = pos.getBlockX(x);
                 int worldZ = pos.getBlockZ(z);
-                for (int y = maxY; y >= minY; y--) {
+                int top = tops == null ? maxY : Math.min(maxY, tops[x * 16 + z]);
+                for (int y = top; y >= minY; y--) {
                     if (mask.get(x, y, z)) {
                         carveMaskedBlock(chunk, blockPos.set(worldX, y, worldZ), neighbor, lavaLevel);
                     }
