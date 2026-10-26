@@ -27,6 +27,8 @@ export interface ExtractOptions extends Omit<PackOptions, 'name' | 'type' | 'str
   zones?: string[];
   /** Extra yards around a zone. */
   margin: number;
+  /** Stops before sampling a larger raster (the zone and tile crops apply first). */
+  maxPixels?: number;
   log: (message: string) => void;
 }
 
@@ -95,6 +97,10 @@ export async function extractMap(
       x1: Math.min(bounds.x1, zoneBounds.x1 + options.margin),
       y1: Math.min(bounds.y1, zoneBounds.y1 + options.margin),
     };
+  }
+  const { width, height } = rasterSize(bounds, options.scale);
+  if (options.maxPixels !== undefined && width * height > options.maxPixels) {
+    throw new Error(`the map would be ${width} x ${height} pixels: use --zone, --tiles or a larger --scale (or --force)`);
   }
 
   const allPlacements = collectPlacements(storage, tiles);

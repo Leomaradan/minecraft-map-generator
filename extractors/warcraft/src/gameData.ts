@@ -112,7 +112,7 @@ export class GameData {
     const q = query.toLowerCase();
     if (/^\d+$/.test(q)) {
       const area = this.areas.get(Number(q));
-      return area ? [area] : [];
+      return area && (mapId === undefined || area.mapId === mapId) ? [area] : [];
     }
     return [...this.areas.values()].filter(
       (a) => (mapId === undefined || a.mapId === mapId) && (a.zoneName.toLowerCase() === q || a.name.toLowerCase() === q),

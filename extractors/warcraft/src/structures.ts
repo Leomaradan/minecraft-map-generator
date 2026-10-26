@@ -164,6 +164,8 @@ class Voxels {
         let b = 0;
         let n = 0;
         for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+          // Out-of-range y or z would wrap onto a voxel of another column.
+          if (z + dz < 0 || z + dz >= this.height || y + dy < -Y_OFFSET || y + dy >= Y_RANGE - Y_OFFSET) continue;
           const j = this.index.get(this.key(x + dx, y + dy, z + dz));
           if (j === undefined || this.weight[j] === 0) continue;
           r += this.r[j] / this.weight[j];

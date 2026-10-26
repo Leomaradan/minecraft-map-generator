@@ -150,8 +150,7 @@ export async function writeMapPack(
   const { width, height } = raster;
   const size = width * height;
   const column = columns(raster, options);
-  // Islands and caves float in the void: an open sea around them would make no sense.
-  const ocean = options.missing === 'ocean' && options.type === 'normal';
+  const ocean = fillsOcean(options);
   const oceanFloorY = options.seaLevel - options.oceanDepth;
 
   // Height range of everything that will be written.
@@ -380,10 +379,17 @@ function landClimateGrid(raster: TerrainRaster, areaClimate: Climate[]): (x: num
   return (x, y) => grid[Math.floor(y / CLIMATE_CELL) * cols + Math.floor(x / CLIMATE_CELL)];
 }
 
+/** Whether missing terrain becomes open sea. Islands and caves float in the void: a sea around them would make no sense. */
+function fillsOcean(options: PackOptions): boolean {
+  return options.missing === 'ocean' && options.type === 'normal';
+}
+
 function biomeSlot(raster: TerrainRaster, x: number, y: number, hasGround: boolean, biomes: Biomes, options: PackOptions): number {
   const i = y * raster.width + x;
   let water: string | undefined;
   if (!hasGround) {
+    // Void keeps the biome of its area: there is no sea there.
+    if (!fillsOcean(options)) return raster.area[i];
     water = waterBiome('ocean', biomes.oceanClimate(x, y), true);
   } else {
     const kind = raster.fluidKind[i];

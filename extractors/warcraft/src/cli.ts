@@ -5,9 +5,8 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { CascStorage } from './casc/storage.ts';
-import { extractMap, mapTiles, rasterSize } from './extract.ts';
+import { extractMap, mapTiles } from './extract.ts';
 import { GameData, type MapInfo } from './gameData.ts';
-import { tileBounds } from './terrain.ts';
 
 const USAGE = `Usage: wow-map-extractor <command> [options]
 
@@ -101,15 +100,6 @@ async function main(): Promise<void> {
       const map = requireMap(game, query);
       const scale = positive(values.scale, '--scale');
       const tilesOption = values.tiles ? parseTiles(values.tiles) : undefined;
-      if (!values.zone && !values.force) {
-        const tiles = mapTiles(storage, map).filter((t) => !tilesOption || (t.x >= tilesOption[0] && t.x <= tilesOption[2] && t.y >= tilesOption[1] && t.y <= tilesOption[3]));
-        if (tiles.length > 0) {
-          const { width, height } = rasterSize(tileBounds(tiles), scale);
-          if (width * height > 100_000_000) {
-            throw new Error(`the map would be ${width} x ${height} pixels: use --zone, --tiles or a larger --scale (or --force)`);
-          }
-        }
-      }
       const slug = (values.name ?? [map.directory, ...(values.zone ?? [])].join('-')).replace(/[^\p{L}\p{N}_-]+/gu, '_');
       const output = resolve(values.output ?? `${slug}.zip`);
       const started = Date.now();
@@ -130,6 +120,7 @@ async function main(): Promise<void> {
         tiles: tilesOption,
         zones: values.zone,
         margin: Number(values.margin),
+        maxPixels: values.force ? undefined : 100_000_000,
         log,
       });
       const { pack } = result;

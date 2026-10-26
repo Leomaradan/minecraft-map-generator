@@ -109,6 +109,9 @@ test('biomes come from overrides, then zones, then keywords', () => {
 test('water biomes follow the climate', () => {
   assert.equal(climateOf('minecraft:snowy_taiga'), 'frozen');
   assert.equal(climateOf('minecraft:desert'), 'warm');
+  assert.equal(climateOf('minecraft:grove'), 'frozen');
+  assert.equal(climateOf('minecraft:cherry_grove'), 'temperate');
+  assert.equal(climateOf('minecraft:mangrove_swamp'), 'warm');
   assert.equal(waterBiome('ocean', 'frozen', true), 'minecraft:deep_frozen_ocean');
   assert.equal(waterBiome('river', 'warm', false), 'minecraft:river');
   assert.equal(waterBiome('ocean', 'temperate', false), 'minecraft:ocean');

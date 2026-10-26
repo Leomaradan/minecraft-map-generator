@@ -153,18 +153,21 @@ export function readDb2(data: Buffer, fields: DbdField[]): Map<number, Db2Record
 
     for (let r = 0; r < section.recordCount; r++, globalIndex++) {
       const recordStart = section.fileOffset + r * recordSize;
+      const context = (column: number, id: number): FieldContext => ({
+        palletStart,
+        common: commonValues[column],
+        id,
+        strings,
+        stringBase: globalIndex * recordSize - recordCount * recordSize,
+      });
+      // Without an ID list the ID is an inline column, needed first to resolve common-data columns.
+      const id = flags & FLAG_ID_LIST
+        ? ids[r]
+        : (readField(data, recordStart, inlineFields[idIndex], storages[idIndex], context(idIndex, 0)) as number);
       const record: Db2Record = {};
       inlineFields.forEach((field, column) => {
-        const value = readField(data, recordStart, field, storages[column], {
-          palletStart,
-          common: commonValues[column],
-          id: ids[r],
-          strings,
-          stringBase: globalIndex * recordSize - recordCount * recordSize,
-        });
-        record[field.name] = value;
+        record[field.name] = readField(data, recordStart, field, storages[column], context(column, id));
       });
-      const id = flags & FLAG_ID_LIST ? ids[r] : (record[inlineFields[idIndex].name] as number);
       if (idField) record[idField.name] = id;
       if (relationField) record[relationField.name] = relations.get(r) ?? 0;
       records.set(id, record);

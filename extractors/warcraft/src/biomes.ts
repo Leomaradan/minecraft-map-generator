@@ -121,7 +121,7 @@ export type Climate = 'frozen' | 'warm' | 'temperate';
 /** Climate of a land biome, used to pick its oceans and rivers. */
 export function climateOf(entry: BiomeEntry): Climate {
   const id = biomeId(entry);
-  if (/snowy|frozen|ice|grove|jagged/.test(id)) return 'frozen';
+  if (/snowy|frozen|ice|jagged|(^|:)grove$/.test(id)) return 'frozen';
   if (/desert|jungle|badlands|savanna|mangrove|warm/.test(id)) return 'warm';
   return 'temperate';
 }
