@@ -1,7 +1,17 @@
 name: Release
 
-# Pushing a v* tag builds the mod and creates a GitHub release with the Fabric and NeoForge
-# mod jars (no sources or javadoc jars) and the example map ZIPs.
+# Pushing a v* tag builds the mod and publishes it with mc-publish:
+# - CurseForge and Modrinth: one version per loader (Fabric, also marked for Quilt, and NeoForge),
+#   with the mod jar only (no sources or javadoc jars);
+# - GitHub: one release with both jars and the example map ZIPs.
+#
+# The tag must match `version` in mod/gradle.properties (v1.0.1 for version=1.0.1). Tags with
+# alpha, beta or rc in their name are published as alpha or beta versions and GitHub prereleases.
+#
+# Repository settings:
+# - variables CURSEFORGE_PROJECT_ID and MODRINTH_PROJECT_ID: the project IDs on each platform;
+# - secrets CURSEFORGE_TOKEN and MODRINTH_TOKEN: API tokens allowed to upload versions.
+# A platform whose token is not set is skipped.
 
 on:
   push:
@@ -36,15 +46,80 @@ jobs:
         with:
           build-root-directory: mod
 
+      # The tag name is passed through the environment, never interpolated into a script, so it
+      # cannot inject shell commands.
+      - name: Read the mod metadata
+        id: meta
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          prop() { sed -n "s/^$1=//p" gradle.properties; }
+          version=$(prop version)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match version=$version in mod/gradle.properties (expected v$version)"
+            exit 1
+          fi
+          case "$version" in
+            *alpha*) type=alpha ;;
+            *beta*|*rc*) type=beta ;;
+            *) type=release ;;
+          esac
+          {
+            echo "name=$(prop mod_name)"
+            echo "version=$version"
+            echo "type=$type"
+            echo "minecraft=$(prop minecraft_version)"
+            echo "game-versions=$(prop minecraft_version_range | tr -d ' ')"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and test
         run: ./gradlew build
 
-      - name: Create the release
+      # One changelog for every platform: GitHub's notes for the commits since the previous tag.
+      - name: Write the changelog
         env:
           GH_TOKEN: ${{ github.token }}
-          # Passed through the environment, never interpolated into the script, so a tag name
-          # cannot inject shell commands.
           TAG: ${{ github.ref_name }}
-        run: |
-          jars=$(ls fabric/build/libs/*.jar neoforge/build/libs/*.jar | grep -vE -- '-(sources|javadoc)\.jar$')
-          gh release create "$TAG" --generate-notes $jars example/*.zip
+        run: gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > build/changelog.md
+
+      # Creates the GitHub release; the NeoForge step adds its files to it.
+      - name: Publish for Fabric
+        uses: Kira-NT/mc-publish@c23376546a97f5ba7984e94445da359459b14419 # v3.3.2
+        with:
+          curseforge-id: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          github-token: ${{ github.token }}
+          github-name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }}
+          files: mod/fabric/build/libs/!(*-@(sources|javadoc)).jar
+          name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }} for Fabric ${{ steps.meta.outputs.minecraft }}
+          version: ${{ steps.meta.outputs.version }}+${{ steps.meta.outputs.minecraft }}-fabric
+          version-type: ${{ steps.meta.outputs.type }}
+          changelog-file: mod/build/changelog.md
+          loaders: |
+            fabric
+            quilt
+          game-versions: ${{ steps.meta.outputs.game-versions }}
+          dependencies: |
+            fabric-api(required){modrinth:P7dR8mSH}{curseforge:306612}
+
+      - name: Publish for NeoForge
+        uses: Kira-NT/mc-publish@c23376546a97f5ba7984e94445da359459b14419 # v3.3.2
+        with:
+          curseforge-id: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          github-token: ${{ github.token }}
+          github-name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }}
+          files: mod/neoforge/build/libs/!(*-@(sources|javadoc)).jar
+          github-files: |
+            mod/neoforge/build/libs/!(*-@(sources|javadoc)).jar
+            mod/example/*.zip
+          name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }} for NeoForge ${{ steps.meta.outputs.minecraft }}
+          version: ${{ steps.meta.outputs.version }}+${{ steps.meta.outputs.minecraft }}-neoforge
+          version-type: ${{ steps.meta.outputs.type }}
+          changelog-file: mod/build/changelog.md
+          loaders: neoforge
+          game-versions: ${{ steps.meta.outputs.game-versions }}
