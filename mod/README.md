@@ -96,8 +96,12 @@ against `26.1.0.19-beta` and runs on any later 26.1.x NeoForge.
   `mapgen-neoforge-26.2`...), each holding only the mod jar
   (`mapgen-<loader>-<minecraft version>-<version>.jar`). The sources and javadoc jars stay in the
   local `build/libs` folders.
-* `.github/workflows/release.yml` runs on a `v*` tag (for example `v0.2.0-mc26.1-26.2`) and creates a
-  GitHub release with the four jars and the example map ZIPs.
+* `.github/workflows/release.yml` runs on a `v<version>-mc26.1-26.2` tag, with `version` from
+  `gradle.properties` (`v1.0.1-mc26.1-26.2` for `version=1.0.1`). It publishes the four jars with
+  [mc-publish](https://github.com/Kira-NT/mc-publish): one version per Minecraft version and loader
+  on CurseForge and Modrinth, and a GitHub release with the four jars and the example map ZIPs. It
+  needs the repository variables `CURSEFORGE_PROJECT_ID` and `MODRINTH_PROJECT_ID` and the secrets
+  `CURSEFORGE_TOKEN` and `MODRINTH_TOKEN`; a platform without a token is skipped.
 
 Artifact names come from `mod_id` in `gradle.properties`, so the workflows can be copied to another
 mod built from the same template without changes.
