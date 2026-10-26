@@ -159,13 +159,17 @@ public final class NoiseCaves {
 
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
-                carveColumn(chunk, corners, cellsY, dx, dz, terrain[dx * 16 + dz]);
+                int ground = columns.terrainY(chunk.getPos().getBlockX(dx), chunk.getPos().getBlockZ(dz));
+                carveColumn(chunk, corners, cellsY, dx, dz, ground, terrain[dx * 16 + dz]);
             }
         }
     }
 
-    /** Digs the caves of one column of the chunk, up to {@code top}. */
-    private static void carveColumn(ChunkAccess chunk, float[][] corners, int cellsY, int dx, int dz, int top) {
+    /**
+     * Digs the caves of one column of the chunk, up to {@code top}. The density depends on the depth
+     * below {@code ground}, so a covered column keeps the cave shapes of its neighbors.
+     */
+    private static void carveColumn(ChunkAccess chunk, float[][] corners, int cellsY, int dx, int dz, int ground, int top) {
         int minY = chunk.getMinY();
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos(chunk.getPos().getBlockX(dx), minY, chunk.getPos().getBlockZ(dz));
         float[] value = new float[COMPONENTS];
@@ -173,7 +177,7 @@ public final class NoiseCaves {
             for (int c = 0; c < COMPONENTS; c++) {
                 value[c] = interpolate(corners[c], cellsY, dx, y - minY, dz);
             }
-            if (density(value, top - y) < 0) {
+            if (density(value, ground - y) < 0) {
                 carveBlock(chunk, blockPos.setY(y));
             }
         }

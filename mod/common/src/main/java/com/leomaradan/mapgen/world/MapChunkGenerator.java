@@ -76,6 +76,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -556,7 +557,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         if (carved) {
-            applyCarvingMask(chunk, mask, minY, maxY, carvingTops(l, pos));
+            applyCarvingMask(chunk, mask, minY, maxY, this.carvingTops(l, pos));
         }
     }
 
@@ -565,11 +566,19 @@ public final class MapChunkGenerator extends ChunkGenerator {
      * blocks under the ground where the column's carver rule keeps the caves closed on the surface.
      * Null when every column may open.
      */
-    private static int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
-        if (l == null || l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
+    private int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
+        int[] tops = new int[256];
+        if (l == null) {
+            // No map: flat placeholder ground, with the rule saved in the settings.
+            if (this.settings.surfaceCaves()) {
+                return null;
+            }
+            Arrays.fill(tops, UNCONFIGURED_GROUND - NoiseCaves.COVER);
+            return tops;
+        }
+        if (l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
             return null;
         }
-        int[] tops = new int[256];
         TerrainSampler.Column column = new TerrainSampler.Column();
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
