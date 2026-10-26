@@ -122,4 +122,4 @@ Workflows only run for changes in their own folder.
 ## Conventions
 
 - Write code comments and docs in English. The mod has `en_us` and `fr_fr` lang files, so add any new UI string to both.
-- Versions are in `mod/gradle.properties` (`version`) and `site/package.json`. They are currently in lockstep at 1.0.0.
+- Versions are in `mod/gradle.properties` (`version`) and `site/package.json`. They are currently in lockstep at 1.0.1.
