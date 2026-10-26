@@ -1,0 +1,40 @@
+name: Extractors
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'extractors/**'
+      - 'docs/schemas/**'
+      - '.github/workflows/extractors.yml'
+  pull_request:
+    paths:
+      - 'extractors/**'
+      - 'docs/schemas/**'
+      - '.github/workflows/extractors.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  warcraft:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extractors/warcraft
+    steps:
+      - uses: actions/checkout@v4
+      # Installs the pnpm version pinned in package.json (packageManager).
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: extractors/warcraft/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: extractors/warcraft/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      # Unit tests, and the generated map.json, biomes.json and structures.json checked against docs/schemas.
+      - run: pnpm test

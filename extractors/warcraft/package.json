@@ -1,0 +1,25 @@
+{
+  "name": "mapgen-extractor-warcraft",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Extracts World of Warcraft terrain into map ZIPs for the Minecraft Map Generator mod",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "bin": {
+    "wow-map-extractor": "src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/cli.ts",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "ajv": "^8.20.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -10,7 +10,8 @@ maps, a world configuration and a structure list, packed in a ZIP file.
 | [`mod/`](mod/) | The Minecraft 26.3 mod (Fabric and NeoForge) that generates a world from a map ZIP; 26.1 and 26.2 are built from the `mc/26.1-26.2` branch. See [mod/README.md](mod/README.md). |
 | [`site/`](site/) | The GitHub Pages site: the mod's landing page and a web editor that builds and edits map ZIPs (Vite + React + TypeScript). `cd site && pnpm install && pnpm dev`. |
 | [`docs/`](docs/) | Shared documentation, including the [map ZIP format](docs/FORMAT.md). |
+| [`extractors/`](extractors/) | Tools that build map ZIPs from existing games, each with its own build. For now, [World of Warcraft](extractors/warcraft/) (Node.js): `cd extractors/warcraft && node src/cli.ts list`. |
 
-Other folders (map templates, extraction tools...) will sit next to `mod/`, each with its
+Other folders (map templates...) will sit next to `mod/`, each with its
 own build. CI workflows are scoped by folder: the mod is only built when something under `mod/`
 changes.
