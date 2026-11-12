@@ -68,6 +68,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -416,6 +417,7 @@ public final class MapChunkGenerator extends ChunkGenerator {
         private final int[] terrain = new int[SIZE * SIZE];
         private final boolean[] fluid = new boolean[SIZE * SIZE];
         private final boolean[] enabled = new boolean[SIZE * SIZE];
+        private final boolean[] surface = new boolean[SIZE * SIZE];
 
         ChunkColumns(Loaded l, ChunkPos pos) {
             this.originX = pos.getMinBlockX() - 1;
@@ -428,7 +430,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
                     l.sampler.sample(x, z, column);
                     this.terrain[i * SIZE + j] = column.terrainY;
                     this.fluid[i * SIZE + j] = column.fluidTop() != TerrainSampler.NONE;
-                    this.enabled[i * SIZE + j] = l.carvers.get(l.index(column.biome)).noise();
+                    MapConfig.Carvers rule = l.carvers.get(l.index(column.biome));
+                    this.enabled[i * SIZE + j] = rule.noise();
+                    this.surface[i * SIZE + j] = rule.surface();
                 }
             }
         }
@@ -448,9 +452,9 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
 
         @Override
-        public boolean nearFluid(int x, int z) {
+        public boolean covered(int x, int z) {
             int i = this.index(x, z);
-            return this.fluid[i] || this.fluid[i - 1] || this.fluid[i + 1] || this.fluid[i - SIZE] || this.fluid[i + SIZE];
+            return !this.surface[i] || this.fluid[i] || this.fluid[i - 1] || this.fluid[i + 1] || this.fluid[i - SIZE] || this.fluid[i + SIZE];
         }
     }
 
@@ -521,8 +525,37 @@ public final class MapChunkGenerator extends ChunkGenerator {
             }
         }
         if (!mask.isEmpty()) {
-            applyCarvingMask(chunk, mask);
+            applyCarvingMask(chunk, mask, this.carvingTops(l, pos));
         }
+    }
+
+    /**
+     * Highest block the carvers may dig in each column of the chunk: {@link NoiseCaves#COVER}
+     * blocks under the ground where the column's carver rule keeps the caves closed on the surface.
+     * Null when every column may open.
+     */
+    private int @Nullable [] carvingTops(@Nullable Loaded l, ChunkPos pos) {
+        int[] tops = new int[256];
+        if (l == null) {
+            // No map: flat placeholder ground, with the rule saved in the settings.
+            if (this.settings.surfaceCaves()) {
+                return null;
+            }
+            Arrays.fill(tops, UNCONFIGURED_GROUND - NoiseCaves.COVER);
+            return tops;
+        }
+        if (l.carvers.stream().allMatch(MapConfig.Carvers::surface)) {
+            return null;
+        }
+        TerrainSampler.Column column = new TerrainSampler.Column();
+        for (int dx = 0; dx < 16; dx++) {
+            for (int dz = 0; dz < 16; dz++) {
+                l.sampler.sample(pos.getBlockX(dx), pos.getBlockZ(dz), column);
+                boolean open = column.terrainY == TerrainSampler.NONE || l.carvers.get(l.index(column.biome)).surface();
+                tops[dx * 16 + dz] = open ? Integer.MAX_VALUE : column.terrainY - NoiseCaves.COVER;
+            }
+        }
+        return tops;
     }
 
     /** Runs the carvers of the biome of {@code sourcePos} (where caves start) allowed by its carver rule. */
@@ -543,8 +576,11 @@ public final class MapChunkGenerator extends ChunkGenerator {
         }
     }
 
-    /** Turns the carved blocks into cave air (lava near the bottom), except next to the map's fluids. */
-    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask) {
+    /**
+     * Turns the carved blocks into cave air (lava near the bottom), except next to the map's fluids
+     * and above {@code tops} (from {@link #carvingTops}).
+     */
+    private static void applyCarvingMask(ChunkAccess chunk, CarvingMask mask, int @Nullable [] tops) {
         ChunkPos pos = chunk.getPos();
         int lavaLevel = chunk.getMinY() + 8;
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
@@ -552,18 +588,20 @@ public final class MapChunkGenerator extends ChunkGenerator {
         mask.visit((x, z, bottomY, topY) -> {
             int worldX = pos.getBlockX(x);
             int worldZ = pos.getBlockZ(z);
-            for (int y = topY; y >= bottomY; y--) {
-                blockPos.set(worldX, y, worldZ);
-                BlockState state = chunk.getBlockState(blockPos);
-                if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty()) {
-                    continue;
-                }
-                if (touchesFluid(chunk, blockPos, neighbor)) {
-                    continue;
-                }
-                chunk.setBlockState(blockPos, y <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
+            int top = tops == null ? topY : Math.min(topY, tops[x * 16 + z]);
+            for (int y = top; y >= bottomY; y--) {
+                carveMaskedBlock(chunk, blockPos.set(worldX, y, worldZ), neighbor, lavaLevel);
             }
         });
+    }
+
+    /** Turns one carved block into cave air (or lava), unless it is air, a fluid, uncarvable or next to a fluid. */
+    private static void carveMaskedBlock(ChunkAccess chunk, BlockPos pos, BlockPos.MutableBlockPos neighbor, int lavaLevel) {
+        BlockState state = chunk.getBlockState(pos);
+        if (state.isAir() || state.is(BlockTags.UNCARVABLE) || !state.getFluidState().isEmpty() || touchesFluid(chunk, pos, neighbor)) {
+            return;
+        }
+        chunk.setBlockState(pos, pos.getY() <= lavaLevel ? Blocks.LAVA.defaultBlockState() : Blocks.CAVE_AIR.defaultBlockState());
     }
 
     /** True if a block above or beside (within the chunk) is a fluid: carving there would drain lakes. */

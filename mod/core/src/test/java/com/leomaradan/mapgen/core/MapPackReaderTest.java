@@ -764,7 +764,7 @@ class MapPackReaderTest {
         BiomeMapping.Variant forest = mapping.slots().get(0);
         assertEquals(BlockPalette.Method.PERLIN, forest.top().method());
         assertFalse(forest.features().allows("minecraft:trees_plains", "vegetal_decoration"));
-        assertEquals(new MapConfig.Carvers(true, false, true), forest.carvers());
+        assertEquals(new MapConfig.Carvers(true, false, true, true), forest.carvers());
         BiomeMapping.Variant grove = mapping.slots().get(1);
         assertEquals(MapConfig.Features.NONE, grove.features());
         assertEquals(MapConfig.Carvers.NONE, grove.carvers());

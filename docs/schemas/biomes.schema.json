@@ -298,7 +298,7 @@
       ]
     },
     "carvers": {
-      "description": "Caves and ravines from the biomes: true, false, or {\"cave\": ..., \"canyon\": ..., \"noise\": ...}.",
+      "description": "Caves and ravines from the biomes: true, false, or {\"cave\": ..., \"canyon\": ..., \"noise\": ..., \"surface\": ...}.",
       "oneOf": [
         {
           "type": "boolean"
@@ -320,6 +320,11 @@
             "noise": {
               "type": "boolean",
               "description": "Noise caves: large caverns, spaghetti and noodle caves, cave entrances. Defaults to the value of cave."
+            },
+            "surface": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether the caves may open on the ground of the map. false: at least 8 blocks of ground are kept above them."
             }
           }
         }
