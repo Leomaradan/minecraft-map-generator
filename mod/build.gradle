@@ -1,6 +1,6 @@
 plugins {
     // see https://plugins.gradle.org/plugin/org.sonarqube for new versions
-    id 'org.sonarqube' version '7.5.0.8588'
+    id 'org.sonarqube' version '7.6.0.18749'
 }
 
 sonar {
